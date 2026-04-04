@@ -67,9 +67,32 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
-// SaveEvents persiste un batch de métricas. Meta se serializa como JSON.
+// SaveEvents persiste un batch de métricas en una transacción. Meta se serializa como JSON.
 func (s *Store) SaveEvents(ctx context.Context, events []plugin.Metric) error {
-	panic("not implemented")
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("beginning transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.PrepareContext(ctx,
+		`INSERT INTO events (plugin, event, timestamp, meta) VALUES (?, ?, ?, ?)`)
+	if err != nil {
+		return fmt.Errorf("preparing insert: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, m := range events {
+		meta, err := encodeMeta(m.Meta)
+		if err != nil {
+			return fmt.Errorf("encoding meta for event %q: %w", m.Event, err)
+		}
+		if _, err := stmt.ExecContext(ctx, m.Plugin, m.Event, encodeTime(m.Timestamp), meta); err != nil {
+			return fmt.Errorf("inserting event: %w", err)
+		}
+	}
+
+	return tx.Commit()
 }
 
 // GetUnsynced retorna hasta limit eventos con synced = FALSE, ordenados por id ASC.
