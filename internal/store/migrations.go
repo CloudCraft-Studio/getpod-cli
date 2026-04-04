@@ -1,6 +1,9 @@
 package store
 
-import "database/sql"
+import (
+	"database/sql"
+	"fmt"
+)
 
 const schema = `
 CREATE TABLE IF NOT EXISTS events (
@@ -23,6 +26,8 @@ CREATE TABLE IF NOT EXISTS collection_cursors (
 `
 
 func applyMigrations(db *sql.DB) error {
-	_, err := db.Exec(schema)
-	return err
+	if _, err := db.Exec(schema); err != nil {
+		return fmt.Errorf("applying migrations: %w", err)
+	}
+	return nil
 }
