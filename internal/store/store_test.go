@@ -64,3 +64,65 @@ func TestSaveEvents_EmptySliceIsNoop(t *testing.T) {
 		t.Fatalf("SaveEvents with empty slice: %v", err)
 	}
 }
+
+func TestGetUnsynced_ReturnsDataCorrectly(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	now := time.Now().UTC().Truncate(time.Second)
+	events := []plugin.Metric{
+		{Plugin: "jira", Event: "issue_closed", Timestamp: now, Meta: map[string]string{"key": "PROJ-1"}},
+	}
+	if err := s.SaveEvents(ctx, events); err != nil {
+		t.Fatalf("SaveEvents: %v", err)
+	}
+
+	got, err := s.GetUnsynced(ctx, 10)
+	if err != nil {
+		t.Fatalf("GetUnsynced: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(got))
+	}
+	if got[0].Plugin != "jira" {
+		t.Errorf("wrong plugin: %q", got[0].Plugin)
+	}
+	if got[0].Event != "issue_closed" {
+		t.Errorf("wrong event: %q", got[0].Event)
+	}
+	if !got[0].Timestamp.Equal(now) {
+		t.Errorf("timestamp mismatch: got %v, want %v", got[0].Timestamp, now)
+	}
+	if got[0].Meta["key"] != "PROJ-1" {
+		t.Errorf("meta not preserved: %v", got[0].Meta)
+	}
+	if got[0].Synced {
+		t.Error("expected synced=false")
+	}
+}
+
+func TestGetUnsynced_RespectsLimit(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	now := time.Now().UTC().Truncate(time.Second)
+	events := []plugin.Metric{
+		{Plugin: "linear", Event: "e1", Timestamp: now, Meta: map[string]string{}},
+		{Plugin: "linear", Event: "e2", Timestamp: now.Add(time.Second), Meta: map[string]string{}},
+		{Plugin: "linear", Event: "e3", Timestamp: now.Add(2 * time.Second), Meta: map[string]string{}},
+	}
+	if err := s.SaveEvents(ctx, events); err != nil {
+		t.Fatalf("SaveEvents: %v", err)
+	}
+
+	got, err := s.GetUnsynced(ctx, 2)
+	if err != nil {
+		t.Fatalf("GetUnsynced: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2, got %d", len(got))
+	}
+	if got[0].Event != "e1" || got[1].Event != "e2" {
+		t.Errorf("wrong order: %q %q", got[0].Event, got[1].Event)
+	}
+}

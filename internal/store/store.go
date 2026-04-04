@@ -97,7 +97,46 @@ func (s *Store) SaveEvents(ctx context.Context, events []plugin.Metric) error {
 
 // GetUnsynced retorna hasta limit eventos con synced = FALSE, ordenados por id ASC.
 func (s *Store) GetUnsynced(ctx context.Context, limit int) ([]StoredEvent, error) {
-	panic("not implemented")
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, plugin, event, timestamp, meta, synced, synced_at, created_at
+		 FROM events WHERE synced = FALSE ORDER BY id ASC LIMIT ?`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("querying unsynced events: %w", err)
+	}
+	defer rows.Close()
+
+	var result []StoredEvent
+	for rows.Next() {
+		var e StoredEvent
+		var tsStr, createdAtStr, metaStr string
+		var syncedAtStr *string
+
+		if err := rows.Scan(&e.ID, &e.Plugin, &e.Event, &tsStr, &metaStr,
+			&e.Synced, &syncedAtStr, &createdAtStr); err != nil {
+			return nil, fmt.Errorf("scanning event: %w", err)
+		}
+
+		if e.Timestamp, err = decodeTime(tsStr); err != nil {
+			return nil, fmt.Errorf("parsing timestamp: %w", err)
+		}
+		if e.Meta, err = decodeMeta(metaStr); err != nil {
+			return nil, fmt.Errorf("decoding meta: %w", err)
+		}
+		if e.CreatedAt, err = decodeTime(createdAtStr); err != nil {
+			return nil, fmt.Errorf("parsing created_at: %w", err)
+		}
+		if syncedAtStr != nil {
+			t, err := decodeTime(*syncedAtStr)
+			if err != nil {
+				return nil, fmt.Errorf("parsing synced_at: %w", err)
+			}
+			e.SyncedAt = &t
+		}
+
+		result = append(result, e)
+	}
+
+	return result, rows.Err()
 }
 
 // MarkSynced marca un batch de eventos como sincronizados.
