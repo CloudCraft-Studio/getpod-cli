@@ -1,4 +1,4 @@
-.PHONY: build run test lint clean
+.PHONY: build install run test lint clean
 
 BINARY_NAME=getpod
 BINARY_DIR=./bin
@@ -9,6 +9,9 @@ LDFLAGS=-ldflags "-X main.Version=$(VERSION)"
 build:
 	@mkdir -p $(BINARY_DIR)
 	go build $(LDFLAGS) -o $(BINARY_DIR)/$(BINARY_NAME) $(CMD_DIR)
+
+install:
+	go install $(LDFLAGS) $(CMD_DIR)
 
 run: build
 	./$(BINARY_DIR)/$(BINARY_NAME)
