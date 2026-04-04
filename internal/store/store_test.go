@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -35,11 +36,11 @@ func TestNewStore_CreatesTablesIdempotent(t *testing.T) {
 
 func TestDefaultDBPath_ContainsGetpod(t *testing.T) {
 	p := store.DefaultDBPath()
-	if p == "" {
-		t.Fatal("DefaultDBPath returned empty string")
+	if !strings.Contains(p, ".getpod") {
+		t.Errorf("expected path to contain .getpod, got %q", p)
 	}
-	if len(p) < 10 {
-		t.Fatalf("path too short: %q", p)
+	if !strings.HasSuffix(p, "getpod.db") {
+		t.Errorf("expected path to end with getpod.db, got %q", p)
 	}
 }
 

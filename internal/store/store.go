@@ -21,7 +21,7 @@ type Store struct {
 
 // StoredEvent es plugin.Metric enriquecido con los campos de persistencia.
 type StoredEvent struct {
-	ID        int64
+	ID int64
 	plugin.Metric
 	Synced    bool
 	SyncedAt  *time.Time
@@ -50,9 +50,13 @@ func NewStore(dbPath string) (*Store, error) {
 		return nil, fmt.Errorf("opening db: %w", err)
 	}
 
-	if _, err := db.Exec("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;"); err != nil {
+	if _, err := db.Exec("PRAGMA journal_mode=WAL;"); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("setting pragmas: %w", err)
+		return nil, fmt.Errorf("setting WAL mode: %w", err)
+	}
+	if _, err := db.Exec("PRAGMA foreign_keys=ON;"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("enabling foreign keys: %w", err)
 	}
 
 	if err := applyMigrations(db); err != nil {
