@@ -168,3 +168,46 @@ func TestMarkSynced_EmptySliceIsNoop(t *testing.T) {
 		t.Fatalf("MarkSynced with empty ids: %v", err)
 	}
 }
+
+func TestGetCursor_ReturnsZeroWhenNotExists(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	got, err := s.GetCursor(ctx, "unknown-plugin")
+	if err != nil {
+		t.Fatalf("GetCursor: %v", err)
+	}
+	if !got.IsZero() {
+		t.Errorf("expected zero time, got %v", got)
+	}
+}
+
+func TestSetCursor_UpsertUpdatesValue(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	t1 := time.Now().UTC().Truncate(time.Second)
+	t2 := t1.Add(24 * time.Hour)
+
+	if err := s.SetCursor(ctx, "jira", t1); err != nil {
+		t.Fatalf("SetCursor t1: %v", err)
+	}
+	got, err := s.GetCursor(ctx, "jira")
+	if err != nil {
+		t.Fatalf("GetCursor after t1: %v", err)
+	}
+	if !got.Equal(t1) {
+		t.Errorf("expected %v, got %v", t1, got)
+	}
+
+	if err := s.SetCursor(ctx, "jira", t2); err != nil {
+		t.Fatalf("SetCursor t2: %v", err)
+	}
+	got, err = s.GetCursor(ctx, "jira")
+	if err != nil {
+		t.Fatalf("GetCursor after t2: %v", err)
+	}
+	if !got.Equal(t2) {
+		t.Errorf("expected %v after upsert, got %v", t2, got)
+	}
+}

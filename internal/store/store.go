@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -169,14 +170,36 @@ func (s *Store) MarkSynced(ctx context.Context, ids []int64, syncedAt time.Time)
 }
 
 // GetCursor retorna el último timestamp de colección del plugin.
-// Si no existe cursor, retorna time.Time{} sin error.
+// Si no existe cursor para el plugin, retorna time.Time{} sin error.
 func (s *Store) GetCursor(ctx context.Context, pluginName string) (time.Time, error) {
-	panic("not implemented")
+	var tsStr string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT last_collected_at FROM collection_cursors WHERE plugin = ?`, pluginName).
+		Scan(&tsStr)
+	if errors.Is(err, sql.ErrNoRows) {
+		return time.Time{}, nil
+	}
+	if err != nil {
+		return time.Time{}, fmt.Errorf("querying cursor for %q: %w", pluginName, err)
+	}
+	t, err := decodeTime(tsStr)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("parsing cursor time: %w", err)
+	}
+	return t, nil
 }
 
 // SetCursor hace upsert del cursor de colección del plugin.
 func (s *Store) SetCursor(ctx context.Context, pluginName string, t time.Time) error {
-	panic("not implemented")
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO collection_cursors (plugin, last_collected_at) VALUES (?, ?)
+		 ON CONFLICT(plugin) DO UPDATE SET last_collected_at = excluded.last_collected_at`,
+		pluginName, encodeTime(t),
+	)
+	if err != nil {
+		return fmt.Errorf("setting cursor for %q: %w", pluginName, err)
+	}
+	return nil
 }
 
 // encodeTime formatea un time.Time como RFC3339 UTC.
