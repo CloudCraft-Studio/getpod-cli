@@ -33,3 +33,6 @@ bin/
 # Editor/IDE
 .idea/
 .vscode/
+
+# Git worktrees
+.worktrees/
