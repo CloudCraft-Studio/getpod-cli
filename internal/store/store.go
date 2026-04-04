@@ -139,9 +139,33 @@ func (s *Store) GetUnsynced(ctx context.Context, limit int) ([]StoredEvent, erro
 	return result, rows.Err()
 }
 
-// MarkSynced marca un batch de eventos como sincronizados.
+// MarkSynced marca un batch de eventos como sincronizados en una transacción.
 func (s *Store) MarkSynced(ctx context.Context, ids []int64, syncedAt time.Time) error {
-	panic("not implemented")
+	if len(ids) == 0 {
+		return nil
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("beginning transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.PrepareContext(ctx,
+		`UPDATE events SET synced = TRUE, synced_at = ? WHERE id = ?`)
+	if err != nil {
+		return fmt.Errorf("preparing update: %w", err)
+	}
+	defer stmt.Close()
+
+	syncedAtStr := encodeTime(syncedAt)
+	for _, id := range ids {
+		if _, err := stmt.ExecContext(ctx, syncedAtStr, id); err != nil {
+			return fmt.Errorf("marking event %d synced: %w", id, err)
+		}
+	}
+
+	return tx.Commit()
 }
 
 // GetCursor retorna el último timestamp de colección del plugin.

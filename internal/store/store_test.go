@@ -126,3 +126,45 @@ func TestGetUnsynced_RespectsLimit(t *testing.T) {
 		t.Errorf("wrong order: %q %q", got[0].Event, got[1].Event)
 	}
 }
+
+func TestMarkSynced_UpdatesBatch(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	now := time.Now().UTC().Truncate(time.Second)
+	events := []plugin.Metric{
+		{Plugin: "github", Event: "pr_opened", Timestamp: now, Meta: map[string]string{}},
+		{Plugin: "github", Event: "pr_merged", Timestamp: now.Add(time.Minute), Meta: map[string]string{}},
+	}
+	if err := s.SaveEvents(ctx, events); err != nil {
+		t.Fatalf("SaveEvents: %v", err)
+	}
+
+	unsynced, err := s.GetUnsynced(ctx, 10)
+	if err != nil {
+		t.Fatalf("GetUnsynced: %v", err)
+	}
+	if len(unsynced) != 2 {
+		t.Fatalf("expected 2 unsynced, got %d", len(unsynced))
+	}
+
+	ids := []int64{unsynced[0].ID, unsynced[1].ID}
+	if err := s.MarkSynced(ctx, ids, now.Add(time.Hour)); err != nil {
+		t.Fatalf("MarkSynced: %v", err)
+	}
+
+	remaining, err := s.GetUnsynced(ctx, 10)
+	if err != nil {
+		t.Fatalf("GetUnsynced after MarkSynced: %v", err)
+	}
+	if len(remaining) != 0 {
+		t.Fatalf("expected 0 unsynced after mark, got %d", len(remaining))
+	}
+}
+
+func TestMarkSynced_EmptySliceIsNoop(t *testing.T) {
+	s := newTestStore(t)
+	if err := s.MarkSynced(context.Background(), []int64{}, time.Now()); err != nil {
+		t.Fatalf("MarkSynced with empty ids: %v", err)
+	}
+}
