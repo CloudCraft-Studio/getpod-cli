@@ -43,10 +43,10 @@ var (
 // Styles container
 type Styles struct {
 	// Navigation
-	ClientTab       lipgloss.Style
-	ClientTabActive lipgloss.Style
-	NavTab          lipgloss.Style
-	NavTabActive    lipgloss.Style
+	ClientButton       lipgloss.Style
+	ClientButtonActive lipgloss.Style
+	NavTab             lipgloss.Style
+	NavTabActive       lipgloss.Style
 
 	// Badges
 	Badge        lipgloss.Style
@@ -73,35 +73,21 @@ func DefaultStyles() Styles {
 	borderRounded := lipgloss.RoundedBorder()
 
 	return Styles{
-		// Navigation
-		ClientTab: lipgloss.NewStyle().
+		// Navigation - Client buttons (complete boxes)
+		ClientButton: lipgloss.NewStyle().
 			Foreground(Content400).
-			Border(lipgloss.Border{
-				Top:         "─",
-				Bottom:      " ",
-				Left:        "│",
-				Right:       "│",
-				TopLeft:     "╭",
-				TopRight:    "╮",
-				BottomLeft:  " ",
-				BottomRight: " ",
-			}).
-			BorderForeground(Surface700),
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(Surface700).
+			Padding(0, 1).
+			MarginRight(1),
 
-		ClientTabActive: lipgloss.NewStyle().
+		ClientButtonActive: lipgloss.NewStyle().
 			Foreground(Primary400).
 			Bold(true).
-			Border(lipgloss.Border{
-				Top:         "─",
-				Bottom:      " ",
-				Left:        "│",
-				Right:       "│",
-				TopLeft:     "╭",
-				TopRight:    "╮",
-				BottomLeft:  " ",
-				BottomRight: " ",
-			}).
-			BorderForeground(Primary400),
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(Primary400).
+			Padding(0, 1).
+			MarginRight(1),
 
 		NavTab: lipgloss.NewStyle().
 			Foreground(Content400).
