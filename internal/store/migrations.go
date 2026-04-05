@@ -23,6 +23,26 @@ CREATE TABLE IF NOT EXISTS collection_cursors (
 	plugin            TEXT PRIMARY KEY,
 	last_collected_at DATETIME NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS issues (
+	id          TEXT PRIMARY KEY,
+	client      TEXT NOT NULL,
+	key         TEXT NOT NULL,
+	title       TEXT NOT NULL,
+	status      TEXT NOT NULL,
+	priority    TEXT,
+	description TEXT,
+	labels      TEXT,
+	raw_data    TEXT,
+	fetched_at  DATETIME NOT NULL,
+	repos       TEXT,
+	workspace   TEXT,
+	environment TEXT,
+	notes       TEXT,
+	started_at  DATETIME,
+	finished_at DATETIME
+);
+CREATE INDEX IF NOT EXISTS idx_issues_client ON issues(client);
 `
 
 func applyMigrations(db *sql.DB) error {
