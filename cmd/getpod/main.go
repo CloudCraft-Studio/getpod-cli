@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"os"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 
 	"github.com/CloudCraft-Studio/getpod-cli/internal/config"
 	"github.com/CloudCraft-Studio/getpod-cli/internal/plugin"
 	"github.com/CloudCraft-Studio/getpod-cli/internal/state"
+	"github.com/CloudCraft-Studio/getpod-cli/internal/tui"
 )
 
 var (
@@ -22,6 +24,7 @@ var rootCmd = &cobra.Command{
 	Use:   "getpod",
 	Short: "Developer workflow CLI",
 	Long:  "GetPod CLI — unified developer workbench",
+	RunE:  runTUI,
 	// PersistentPreRunE carga la config y el contexto activo antes de cualquier subcomando
 	// (excepto los que no lo necesitan como version o config init).
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
@@ -88,6 +91,36 @@ var rootCmd = &cobra.Command{
 
 		return nil
 	},
+}
+
+func runTUI(cmd *cobra.Command, args []string) error {
+	// Load config if not already loaded
+	if cfg == nil {
+		path := cfgFile
+		if path == "" {
+			if envPath := os.Getenv("GETPOD_CONFIG"); envPath != "" {
+				path = envPath
+			}
+		}
+
+		var err error
+		cfg, err = config.Load(path)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "⚠ No se pudo cargar la config: %v\n", err)
+			cfg = config.DefaultConfig()
+		}
+	}
+
+	// Create app
+	app := tui.NewApp(cfg, reg)
+	p := tea.NewProgram(app, tea.WithAltScreen())
+
+	// Run TUI
+	if _, err := p.Run(); err != nil {
+		return fmt.Errorf("error running TUI: %w", err)
+	}
+
+	return nil
 }
 
 func init() {
