@@ -47,10 +47,11 @@ func (m *RepoPickerModal) Init() tea.Cmd {
 }
 
 func (m *RepoPickerModal) fetchReposCmd() tea.Cmd {
+	reg := m.reg
 	return func() tea.Msg {
 		ctx := context.Background()
-		for _, name := range m.reg.ActivePlugins() {
-			p, ok := m.reg.Get(name)
+		for _, name := range reg.ActivePlugins() {
+			p, ok := reg.Get(name)
 			if !ok {
 				continue
 			}
@@ -137,7 +138,7 @@ func (m *RepoPickerModal) handleFilterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m *RepoPickerModal) applyFilter() {
 	m.cursor = 0
 	if m.filter == "" {
-		m.filtered = m.items
+		m.filtered = m.items[:len(m.items):len(m.items)]
 		return
 	}
 	query := strings.ToLower(m.filter)
@@ -160,6 +161,9 @@ func (m *RepoPickerModal) View() string {
 		return m.styles.Muted.Render("No repositories found. Configure a repo plugin.")
 	}
 
+	checkboxSelected := lipgloss.NewStyle().Foreground(Success400)
+	cursorStyle := lipgloss.NewStyle().Foreground(Primary400)
+
 	var lines []string
 	if m.filterOn {
 		lines = append(lines, m.styles.HelpKey.Render("/")+" "+m.styles.Paragraph.Render(m.filter+"_"))
@@ -168,12 +172,12 @@ func (m *RepoPickerModal) View() string {
 	for i, r := range m.filtered {
 		checkbox := m.styles.Muted.Render("[ ]")
 		if m.selected[r.Name] {
-			checkbox = lipgloss.NewStyle().Foreground(Success400).Render("[x]")
+			checkbox = checkboxSelected.Render("[x]")
 		}
 		age := repoAge(r.UpdatedAt)
 		row := fmt.Sprintf("%s  %-30s  %-10s  %-8s  %s", checkbox, r.Name, r.Source, r.Language, age)
 		if i == m.cursor {
-			row = lipgloss.NewStyle().Foreground(Primary400).Render("> " + row)
+			row = cursorStyle.Render("> " + row)
 		} else {
 			row = "  " + row
 		}
@@ -195,6 +199,6 @@ func repoAge(t time.Time) string {
 	case d < 24*time.Hour:
 		return fmt.Sprintf("%dh ago", int(d.Hours()))
 	default:
-		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
+		return fmt.Sprintf("%dd ago", int(d.Hours())/24)
 	}
 }
