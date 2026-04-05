@@ -86,6 +86,36 @@ func InitConfig(configPath string) error {
 	return nil
 }
 
+// Save guarda la configuración en configPath.
+func Save(cfg *Config, configPath string) error {
+	if configPath == "" {
+		configPath = DefaultConfigPath()
+	}
+
+	dir := filepath.Dir(configPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("error creando directorio %s: %w", dir, err)
+	}
+
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("error serializando config: %w", err)
+	}
+
+	header := []byte(
+		"# GetPod CLI — Configuración\n" +
+			"# Jerarquía: clients → workspaces → contexts\n" +
+			"# Las credenciales pueden referenciar env vars: ${MI_API_TOKEN}\n\n",
+	)
+	content := append(header, data...)
+
+	if err := os.WriteFile(configPath, content, 0600); err != nil {
+		return fmt.Errorf("error escribiendo config en %s: %w", configPath, err)
+	}
+
+	return nil
+}
+
 // envVarPattern coincide con ${VAR_NAME}
 var envVarPattern = regexp.MustCompile(`\$\{([^}]+)\}`)
 
