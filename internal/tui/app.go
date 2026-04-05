@@ -111,18 +111,36 @@ func (a *App) View() string {
 		return "Initializing..."
 	}
 
-	// Build sections without conflicting backgrounds
+	// Build sections
 	header := a.renderHeader()
+	clientTabs := a.renderClientTabsHeader()
 	nav := a.renderNav()
 	content := a.renderContent()
 	footer := a.renderFooter()
 
-	// Stack sections vertically
-	sections := []string{header, "", nav, "", content, "", footer}
+	// Content panel (nav + content + footer) wrapped in active tab border
+	panelContent := lipgloss.JoinVertical(lipgloss.Left, nav, "", content, "", footer)
 
-	body := lipgloss.JoinVertical(lipgloss.Left, sections...)
+	// Wrap content in active tab border
+	activeTabPanel := lipgloss.NewStyle().
+		Border(lipgloss.Border{
+			Top:         "",
+			Bottom:      "─",
+			Left:        "│",
+			Right:       "│",
+			TopLeft:     "",
+			TopRight:    "",
+			BottomLeft:  "╰",
+			BottomRight: "╯",
+		}).
+		BorderForeground(Primary400).
+		Padding(1, 2).
+		Render(panelContent)
 
-	// Main container - simple rounded border
+	// Stack everything
+	body := lipgloss.JoinVertical(lipgloss.Left, header, clientTabs, activeTabPanel)
+
+	// Outer container
 	container := lipgloss.NewStyle().
 		Border(a.styles.BorderRounded).
 		BorderForeground(Surface700).
@@ -157,13 +175,10 @@ func (a *App) renderHeader() string {
 
 	line1 := brand + spacer + toolInfo
 
-	// Line 2: Client tabs
-	clientTabs := a.renderClientTabs()
-
-	return lipgloss.JoinVertical(lipgloss.Left, line1, clientTabs)
+	return line1
 }
 
-func (a *App) renderClientTabs() string {
+func (a *App) renderClientTabsHeader() string {
 	var tabs []string
 
 	// Get sorted client names for consistent order
@@ -191,11 +206,38 @@ func (a *App) renderClientTabs() string {
 
 		var tab string
 		if idx == a.clientIdx {
-			// Active tab with border
-			tab = a.styles.ClientTabActive.Render(" " + displayName + " ")
+			// Active tab - only top border, will connect to panel below
+			tab = lipgloss.NewStyle().
+				Foreground(Primary400).
+				Bold(true).
+				Border(lipgloss.Border{
+					Top:         "─",
+					Bottom:      "",
+					Left:        "│",
+					Right:       "│",
+					TopLeft:     "╭",
+					TopRight:    "╮",
+					BottomLeft:  "",
+					BottomRight: "",
+				}).
+				BorderForeground(Primary400).
+				Render(" " + displayName + " ")
 		} else {
-			// Inactive tab
-			tab = a.styles.ClientTab.Render(" " + displayName + " ")
+			// Inactive tab - complete small box
+			tab = lipgloss.NewStyle().
+				Foreground(Content400).
+				Border(lipgloss.Border{
+					Top:         "─",
+					Bottom:      "─",
+					Left:        "│",
+					Right:       "│",
+					TopLeft:     "╭",
+					TopRight:    "╮",
+					BottomLeft:  "╰",
+					BottomRight: "╯",
+				}).
+				BorderForeground(Surface700).
+				Render(" " + displayName + " ")
 		}
 
 		tabs = append(tabs, tab)
