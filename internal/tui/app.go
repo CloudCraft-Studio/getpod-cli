@@ -70,9 +70,7 @@ func (a *App) Init() tea.Cmd {
 
 	a.updateFooterHints()
 
-	return tea.Batch(
-		tea.EnterAltScreen,
-	)
+	return tea.EnterAltScreen
 }
 
 func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -113,45 +111,22 @@ func (a *App) View() string {
 		return "Initializing..."
 	}
 
-	// Build the UI with a bordered container
+	// Build sections without conflicting backgrounds
 	header := a.renderHeader()
 	nav := a.renderNav()
 	content := a.renderContent()
 	footer := a.renderFooter()
 
-	// Calculate available height for content
-	headerHeight := lipgloss.Height(header)
-	navHeight := lipgloss.Height(nav)
-	footerHeight := lipgloss.Height(footer)
+	// Stack sections vertically
+	sections := []string{header, "", nav, "", content, "", footer}
 
-	// Account for border (2 lines), padding, and spacing
-	availableHeight := a.height - headerHeight - navHeight - footerHeight - 6
+	body := lipgloss.JoinVertical(lipgloss.Left, sections...)
 
-	if availableHeight < 3 {
-		availableHeight = 3
-	}
-
-	content = a.styles.ContentArea.
-		Width(a.width - 4).
-		Height(availableHeight).
-		Render(content)
-
-	// Combine all components
-	body := lipgloss.JoinVertical(
-		lipgloss.Left,
-		header,
-		nav,
-		content,
-		footer,
-	)
-
-	// Add main container with border
+	// Main container - simple rounded border
 	container := lipgloss.NewStyle().
-		BorderStyle(a.styles.BorderRounded).
+		Border(a.styles.BorderRounded).
 		BorderForeground(Surface700).
-		Background(Surface950).
-		Width(a.width).
-		Height(a.height).
+		Padding(1, 2).
 		Render(body)
 
 	return container
@@ -160,44 +135,34 @@ func (a *App) View() string {
 func (a *App) renderHeader() string {
 	clientName, _ := a.getActiveClient()
 
-	// Brand title
+	// Line 1: Brand and metadata
 	brand := a.styles.BrandText.Render(AppTitle + " " + AppVersion)
 
-	// Planning tool and issue count
 	planningTool := a.getPlanningTool()
 	issueCount := a.getIssueCount()
 
-	var toolBadge string
+	var toolInfo string
 	if planningTool != "None" {
-		toolBadge = a.styles.Badge.
-			Background(Primary500).
-			Foreground(Surface950).
-			Render(planningTool)
+		toolBadge := a.styles.Badge.Render(" " + planningTool + " ")
+		issueInfo := a.styles.Muted.Render(fmt.Sprintf("%d issues", issueCount))
+		toolInfo = toolBadge + " " + issueInfo
 	} else {
-		toolBadge = a.styles.Badge.Render("No plugin")
+		toolInfo = a.styles.Muted.Render("No plugin configured")
 	}
 
-	issueBadge := a.styles.Muted.Render(fmt.Sprintf("%d issues", issueCount))
+	// Calculate spacing
+	spacerWidth := a.width - lipgloss.Width(brand) - lipgloss.Width(toolInfo) - 8
+	if spacerWidth < 1 {
+		spacerWidth = 1
+	}
+	spacer := strings.Repeat(" ", spacerWidth)
 
-	rightInfo := lipgloss.JoinHorizontal(
-		lipgloss.Left,
-		toolBadge,
-		"  ",
-		issueBadge,
-	)
+	line1 := brand + spacer + toolInfo
 
-	// Top bar with brand and info
-	topBarWidth := a.width - 4 // Account for padding
-	spacer := strings.Repeat(" ", max(0, topBarWidth-lipgloss.Width(brand)-lipgloss.Width(rightInfo)-2))
-
-	topBar := a.styles.TopBar.
-		Width(topBarWidth).
-		Render(lipgloss.JoinHorizontal(lipgloss.Left, brand, spacer, rightInfo))
-
-	// Client tabs
+	// Line 2: Client tab
 	clientTab := a.styles.ClientTabActive.Render("● " + clientName)
 
-	return lipgloss.JoinVertical(lipgloss.Left, topBar, clientTab)
+	return lipgloss.JoinVertical(lipgloss.Left, line1, clientTab)
 }
 
 func (a *App) renderNav() string {
@@ -219,10 +184,7 @@ func (a *App) renderNav() string {
 		renderedTabs = append(renderedTabs, style.Render(tab.label))
 	}
 
-	return lipgloss.NewStyle().
-		Width(a.width-4).
-		Padding(1, 0).
-		Render(lipgloss.JoinHorizontal(lipgloss.Left, renderedTabs...))
+	return lipgloss.JoinHorizontal(lipgloss.Left, renderedTabs...)
 }
 
 func (a *App) renderContent() string {
@@ -244,7 +206,6 @@ func (a *App) renderIssuesView() string {
 	lines = append(lines, a.styles.Title.Render("📋 Issues"))
 	lines = append(lines, "")
 
-	// Check if plugin is configured
 	planningTool := a.getPlanningTool()
 	if planningTool == "None" {
 		lines = append(lines, a.styles.Muted.Render("No planning tool configured"))
@@ -263,12 +224,11 @@ func (a *App) renderIssuesView() string {
 
 func (a *App) renderFooter() string {
 	if len(a.footerHints) == 0 {
-		return a.styles.Footer.Width(a.width - 4).Render("")
+		return ""
 	}
 
 	var hints []string
 	for _, hint := range a.footerHints {
-		// Split on space to style key and description
 		parts := strings.SplitN(hint, " ", 2)
 		if len(parts) == 2 {
 			hints = append(hints, a.styles.HelpKey.Render(parts[0])+" "+a.styles.HelpDesc.Render(parts[1]))
@@ -277,11 +237,7 @@ func (a *App) renderFooter() string {
 		}
 	}
 
-	hintText := strings.Join(hints, "  •  ")
-
-	return a.styles.Footer.
-		Width(a.width - 4).
-		Render(hintText)
+	return strings.Join(hints, "  •  ")
 }
 
 // Helper methods
@@ -343,15 +299,8 @@ func (a *App) getIssueCount() int {
 func (a *App) updateFooterHints() {
 	switch a.view {
 	case ViewIssues:
-		a.footerHints = []string{"↑↓ Navigate", "⏎ Open", "/ Filter", "tab Switch Client", "q Quit"}
+		a.footerHints = []string{"↑↓ Navigate", "⏎ Open", "/ Filter", "tab Switch", "q Quit"}
 	case ViewPRs, ViewStatus:
-		a.footerHints = []string{"↑↓ Navigate", "⏎ Open", "esc Back", "tab Switch Client", "q Quit"}
+		a.footerHints = []string{"↑↓ Navigate", "⏎ Open", "esc Back", "tab Switch", "q Quit"}
 	}
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }

@@ -42,15 +42,7 @@ var (
 
 // Styles container
 type Styles struct {
-	// Layout
-	AppContainer lipgloss.Style
-	TopBar       lipgloss.Style
-	ContentArea  lipgloss.Style
-	Footer       lipgloss.Style
-	Panel        lipgloss.Style
-
 	// Navigation
-	ClientTab       lipgloss.Style
 	ClientTabActive lipgloss.Style
 	NavTab          lipgloss.Style
 	NavTabActive    lipgloss.Style
@@ -73,111 +65,56 @@ type Styles struct {
 	Placeholder lipgloss.Style
 
 	// Borders
-	BorderNormal  lipgloss.Border
 	BorderRounded lipgloss.Border
-	BorderThick   lipgloss.Border
 }
 
 func DefaultStyles() Styles {
-	// Border definitions
-	borderNormal := lipgloss.NormalBorder()
-
 	borderRounded := lipgloss.RoundedBorder()
 
-	borderThick := lipgloss.ThickBorder()
-
 	return Styles{
-		// Layout
-		AppContainer: lipgloss.NewStyle().
-			Background(Surface950).
-			Foreground(Content300),
-
-		TopBar: lipgloss.NewStyle().
-			Background(Surface900).
-			Foreground(Content100).
-			BorderStyle(borderNormal).
-			BorderForeground(Surface700).
-			BorderBottom(true).
-			Padding(0, 2),
-
-		ContentArea: lipgloss.NewStyle().
-			Background(Surface950).
-			Foreground(Content300).
-			Padding(1, 2),
-
-		Footer: lipgloss.NewStyle().
-			Background(Surface900).
-			Foreground(Content400).
-			BorderStyle(borderNormal).
-			BorderForeground(Surface700).
-			BorderTop(true).
-			Padding(0, 2),
-
-		Panel: lipgloss.NewStyle().
-			Background(Surface900).
-			Foreground(Content300).
-			BorderStyle(borderRounded).
-			BorderForeground(Surface700).
-			Padding(1, 2).
-			Margin(0, 1),
-
 		// Navigation
-		ClientTab: lipgloss.NewStyle().
-			Foreground(Content400).
-			Padding(0, 2),
-
 		ClientTabActive: lipgloss.NewStyle().
 			Foreground(Primary400).
-			Bold(true).
-			Padding(0, 2),
+			Bold(true),
 
 		NavTab: lipgloss.NewStyle().
 			Foreground(Content400).
-			Padding(0, 2).
-			Margin(0, 1),
+			Padding(0, 2),
 
 		NavTabActive: lipgloss.NewStyle().
 			Foreground(Primary400).
 			Bold(true).
-			Padding(0, 2).
-			Margin(0, 1).
-			BorderBottom(true).
-			BorderForeground(Primary400),
+			Padding(0, 2),
 
 		// Badges
 		Badge: lipgloss.NewStyle().
-			Background(Surface800).
-			Foreground(Content300).
-			Padding(0, 1).
+			Background(Primary500).
+			Foreground(Surface950).
 			Bold(true),
 
 		BadgeSuccess: lipgloss.NewStyle().
 			Background(Success500).
 			Foreground(Surface950).
-			Padding(0, 1).
 			Bold(true),
 
 		BadgeWarning: lipgloss.NewStyle().
 			Background(Warning500).
 			Foreground(Surface950).
-			Padding(0, 1).
 			Bold(true),
 
 		BadgeDanger: lipgloss.NewStyle().
 			Background(Danger500).
 			Foreground(Surface950).
-			Padding(0, 1).
 			Bold(true),
 
 		BadgeInfo: lipgloss.NewStyle().
 			Background(Info500).
 			Foreground(Surface950).
-			Padding(0, 1).
 			Bold(true),
 
 		// Text
 		Title: lipgloss.NewStyle().
-			Foreground(Primary400).
+			Foreground(Content100).
 			Bold(true),
 
 		BrandText: lipgloss.NewStyle().
@@ -185,8 +122,7 @@ func DefaultStyles() Styles {
 			Bold(true),
 
 		Subtitle: lipgloss.NewStyle().
-			Foreground(Content400).
-			Bold(true),
+			Foreground(Content400),
 
 		Paragraph: lipgloss.NewStyle().
 			Foreground(Content300),
@@ -206,8 +142,6 @@ func DefaultStyles() Styles {
 			Italic(true),
 
 		// Borders
-		BorderNormal:  borderNormal,
 		BorderRounded: borderRounded,
-		BorderThick:   borderThick,
 	}
 }
