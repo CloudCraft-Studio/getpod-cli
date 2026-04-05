@@ -95,3 +95,38 @@ func TestEnvPickerModal_EscEmitsModalClosedMsg(t *testing.T) {
 		t.Error("expected ModalClosedMsg")
 	}
 }
+
+func TestEnvPickerModal_NavigationAndSelection(t *testing.T) {
+	m := NewEnvPickerModal(testConfigWithEnvs(), "lulo", "lulo-x", DefaultStyles())
+	// sorted: prod(0), qa(1), stg(2)
+
+	// down moves cursor to qa
+	down := tea.KeyMsg{Type: tea.KeyDown}
+	m.Update(down)
+	if m.cursor != 1 {
+		t.Fatalf("expected cursor=1 after down, got %d", m.cursor)
+	}
+
+	// enter at cursor=1 emits qa
+	enter := tea.KeyMsg{Type: tea.KeyEnter}
+	_, cmd := m.Update(enter)
+	ev := cmd().(EnvSelectedMsg)
+	if ev.Env != "qa" {
+		t.Errorf("expected qa after navigating down, got %q", ev.Env)
+	}
+
+	// up from cursor=1 returns to 0
+	m.cursor = 1
+	up := tea.KeyMsg{Type: tea.KeyUp}
+	m.Update(up)
+	if m.cursor != 0 {
+		t.Errorf("expected cursor=0 after up, got %d", m.cursor)
+	}
+
+	// down beyond last item clamps at 2
+	m.cursor = 2
+	m.Update(down)
+	if m.cursor != 2 {
+		t.Errorf("expected cursor clamped at 2, got %d", m.cursor)
+	}
+}

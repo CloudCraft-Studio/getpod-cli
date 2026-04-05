@@ -88,11 +88,14 @@ func (m *EnvPickerModal) View() string {
 	cursorStyle := lipgloss.NewStyle().Foreground(Primary400)
 	var lines []string
 	for i, env := range m.items {
-		name := env.name
+		// Build the indicator prefix separately so fmt.Sprintf only pads plain text.
+		// Applying ANSI codes before %-Ns causes under-padding because escape bytes
+		// count toward the width but are invisible in the terminal.
+		indicator := "  "
 		if env.isProd {
-			name = prodStyle.Render("⚠ " + name)
+			indicator = prodStyle.Render("⚠") + " "
 		}
-		row := fmt.Sprintf("%-14s  AWS %-14s  %s", name, env.awsAccount, env.awsRegion)
+		row := indicator + fmt.Sprintf("%-12s  AWS %-14s  %s", env.name, env.awsAccount, env.awsRegion)
 		if i == m.cursor {
 			row = cursorStyle.Render("> " + row)
 		} else {
