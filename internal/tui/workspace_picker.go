@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -38,14 +39,7 @@ func NewWorkspacePickerModal(cfg *config.Config, client string, styles Styles) *
 			envCount:    len(ws.Contexts),
 		})
 	}
-	// sort alphabetically by name
-	for i := 0; i < len(items); i++ {
-		for j := i + 1; j < len(items); j++ {
-			if items[i].name > items[j].name {
-				items[i], items[j] = items[j], items[i]
-			}
-		}
-	}
+	sort.Slice(items, func(i, j int) bool { return items[i].name < items[j].name })
 	return &WorkspacePickerModal{items: items, styles: styles}
 }
 
