@@ -20,10 +20,16 @@ var clientListCmd = &cobra.Command{
 			return fmt.Errorf("no hay configuración cargada")
 		}
 
-		s, _ := state.Load() // si falla, el activo es vacío
+		s, err := state.Load()
+		if err != nil {
+			return fmt.Errorf("error cargando estado: %w", err)
+		}
 
+		fmt.Println("\nCLIENTES")
+		fmt.Printf("%-20s %-25s %s\n", "NOMBRE", "DISPLAY NAME", "PLUGINS")
+		fmt.Println("─────────────────────────────────────────────────────")
 		for name, client := range cfg.Clients {
-			prefix := "  "
+			prefix := ""
 			if s.ActiveClient == name {
 				prefix = "* "
 			}
@@ -31,7 +37,19 @@ var clientListCmd = &cobra.Command{
 			if displayName == "" {
 				displayName = name
 			}
-			fmt.Printf("%s%-15s (%s)\n", prefix, name, displayName)
+
+			var plugins []string
+			for p := range client.Plugins {
+				plugins = append(plugins, p)
+			}
+			pluginStr := ""
+			if len(plugins) > 0 {
+				pluginStr = plugins[0]
+				for i := 1; i < len(plugins); i++ {
+					pluginStr += ", " + plugins[i]
+				}
+			}
+			fmt.Printf("%s%-20s %-25s %s\n", prefix, name, displayName, pluginStr)
 		}
 		return nil
 	},
@@ -47,13 +65,12 @@ var clientUseCmd = &cobra.Command{
 			return fmt.Errorf("el cliente %q no existe en config.yaml", name)
 		}
 
-		s, _ := state.Load()
-		s.ActiveClient = name
-		// Limpiar workspace/context si ya no son válidos para el nuevo cliente
-		s.ActiveWorkspace = ""
-		s.ActiveContext = ""
+		s, err := state.Load()
+		if err != nil {
+			return fmt.Errorf("error cargando estado: %w", err)
+		}
 
-		if err := s.Save(); err != nil {
+		if err := s.UseClient(name); err != nil {
 			return err
 		}
 

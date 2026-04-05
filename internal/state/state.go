@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/CloudCraft-Studio/getpod-cli/internal/config"
 	"github.com/CloudCraft-Studio/getpod-cli/internal/plugin"
@@ -17,9 +18,10 @@ const (
 
 // State persiste el contexto activo del desarrollador entre sesiones.
 type State struct {
-	ActiveClient    string `yaml:"active_client"`
-	ActiveWorkspace string `yaml:"active_workspace"`
-	ActiveContext   string `yaml:"active_context"`
+	ActiveClient    string    `yaml:"active_client"`
+	ActiveWorkspace string    `yaml:"active_workspace"`
+	ActiveContext   string    `yaml:"active_context"`
+	LastSwitched    time.Time `yaml:"last_switched"`
 }
 
 // DefaultStatePath retorna la ruta: ~/.getpod/state.yaml
@@ -65,6 +67,33 @@ func (s *State) Save() error {
 	}
 
 	return os.WriteFile(path, data, 0600)
+}
+
+// UseClient selecciona un cliente y limpia workspace/context.
+// Atomically updates state and persists to disk.
+func (s *State) UseClient(name string) error {
+	s.ActiveClient = name
+	s.ActiveWorkspace = ""
+	s.ActiveContext = ""
+	s.LastSwitched = time.Now()
+	return s.Save()
+}
+
+// UseWorkspace selecciona un workspace y limpia context.
+// Atomically updates state and persists to disk.
+func (s *State) UseWorkspace(name string) error {
+	s.ActiveWorkspace = name
+	s.ActiveContext = ""
+	s.LastSwitched = time.Now()
+	return s.Save()
+}
+
+// UseContext selecciona un context.
+// Atomically updates state and persists to disk.
+func (s *State) UseContext(name string) error {
+	s.ActiveContext = name
+	s.LastSwitched = time.Now()
+	return s.Save()
 }
 
 // Resolve valida que la jerarquía guardada en el state exista en la config actual.
