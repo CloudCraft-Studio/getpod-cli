@@ -46,7 +46,7 @@ func (s *Selector) Run() error {
 
 	reader := bufio.NewReader(os.Stdin)
 
-	fmt.Println("\n=== GetPod Context Selector ===\n")
+	fmt.Print("\n=== GetPod Context Selector ===\n\n")
 
 	if err := s.selectClient(reader); err != nil {
 		return err
