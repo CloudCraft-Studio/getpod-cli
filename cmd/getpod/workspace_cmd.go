@@ -52,7 +52,10 @@ var workspaceUseCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
-		s, _ := state.Load()
+		s, err := state.Load()
+		if err != nil {
+			return fmt.Errorf("error cargando estado: %w", err)
+		}
 		if s.ActiveClient == "" {
 			return fmt.Errorf("no hay un cliente activo. Usa 'getpod client use <nombre>' primero")
 		}
@@ -66,10 +69,7 @@ var workspaceUseCmd = &cobra.Command{
 			return fmt.Errorf("el workspace %q no existe para el cliente %q", name, s.ActiveClient)
 		}
 
-		s.ActiveWorkspace = name
-		s.ActiveContext = "" // Limpiar contexto
-
-		if err := s.Save(); err != nil {
+		if err := s.UseWorkspace(name); err != nil {
 			return err
 		}
 
