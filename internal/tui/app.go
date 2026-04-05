@@ -133,8 +133,6 @@ func (a *App) View() string {
 }
 
 func (a *App) renderHeader() string {
-	clientName, _ := a.getActiveClient()
-
 	// Line 1: Brand and metadata
 	brand := a.styles.BrandText.Render(AppTitle + " " + AppVersion)
 
@@ -159,10 +157,51 @@ func (a *App) renderHeader() string {
 
 	line1 := brand + spacer + toolInfo
 
-	// Line 2: Client tab
-	clientTab := a.styles.ClientTabActive.Render("● " + clientName)
+	// Line 2: Client tabs
+	clientTabs := a.renderClientTabs()
 
-	return lipgloss.JoinVertical(lipgloss.Left, line1, clientTab)
+	return lipgloss.JoinVertical(lipgloss.Left, line1, clientTabs)
+}
+
+func (a *App) renderClientTabs() string {
+	var tabs []string
+
+	// Get sorted client names for consistent order
+	var clientNames []string
+	for name := range a.cfg.Clients {
+		clientNames = append(clientNames, name)
+	}
+
+	// Sort alphabetically
+	for i := 0; i < len(clientNames); i++ {
+		for j := i + 1; j < len(clientNames); j++ {
+			if clientNames[i] > clientNames[j] {
+				clientNames[i], clientNames[j] = clientNames[j], clientNames[i]
+			}
+		}
+	}
+
+	// Render tabs
+	for idx, name := range clientNames {
+		client := a.cfg.Clients[name]
+		displayName := client.DisplayName
+		if displayName == "" {
+			displayName = name
+		}
+
+		var tab string
+		if idx == a.clientIdx {
+			// Active tab with border
+			tab = a.styles.ClientTabActive.Render(" " + displayName + " ")
+		} else {
+			// Inactive tab
+			tab = a.styles.ClientTab.Render(" " + displayName + " ")
+		}
+
+		tabs = append(tabs, tab)
+	}
+
+	return lipgloss.JoinHorizontal(lipgloss.Left, tabs...)
 }
 
 func (a *App) renderNav() string {
@@ -242,20 +281,27 @@ func (a *App) renderFooter() string {
 
 // Helper methods
 func (a *App) getActiveClient() (string, config.ClientConfig) {
-	var name string
-	var client config.ClientConfig
-
-	idx := 0
-	for n, c := range a.cfg.Clients {
-		if idx == a.clientIdx {
-			name = n
-			client = c
-			break
-		}
-		idx++
+	// Get sorted client names
+	var clientNames []string
+	for name := range a.cfg.Clients {
+		clientNames = append(clientNames, name)
 	}
 
-	return name, client
+	// Sort alphabetically
+	for i := 0; i < len(clientNames); i++ {
+		for j := i + 1; j < len(clientNames); j++ {
+			if clientNames[i] > clientNames[j] {
+				clientNames[i], clientNames[j] = clientNames[j], clientNames[i]
+			}
+		}
+	}
+
+	if a.clientIdx < len(clientNames) {
+		name := clientNames[a.clientIdx]
+		return name, a.cfg.Clients[name]
+	}
+
+	return "", config.ClientConfig{}
 }
 
 func (a *App) updateActiveClient() {

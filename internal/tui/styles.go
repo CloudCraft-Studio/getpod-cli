@@ -43,6 +43,7 @@ var (
 // Styles container
 type Styles struct {
 	// Navigation
+	ClientTab       lipgloss.Style
 	ClientTabActive lipgloss.Style
 	NavTab          lipgloss.Style
 	NavTabActive    lipgloss.Style
@@ -73,9 +74,34 @@ func DefaultStyles() Styles {
 
 	return Styles{
 		// Navigation
+		ClientTab: lipgloss.NewStyle().
+			Foreground(Content400).
+			Border(lipgloss.Border{
+				Top:         "─",
+				Bottom:      " ",
+				Left:        "│",
+				Right:       "│",
+				TopLeft:     "╭",
+				TopRight:    "╮",
+				BottomLeft:  " ",
+				BottomRight: " ",
+			}).
+			BorderForeground(Surface700),
+
 		ClientTabActive: lipgloss.NewStyle().
 			Foreground(Primary400).
-			Bold(true),
+			Bold(true).
+			Border(lipgloss.Border{
+				Top:         "─",
+				Bottom:      " ",
+				Left:        "│",
+				Right:       "│",
+				TopLeft:     "╭",
+				TopRight:    "╮",
+				BottomLeft:  " ",
+				BottomRight: " ",
+			}).
+			BorderForeground(Primary400),
 
 		NavTab: lipgloss.NewStyle().
 			Foreground(Content400).
