@@ -150,6 +150,14 @@ func TestUpdateWorkContext_PersistsValues(t *testing.T) {
 	}
 }
 
+func TestUpdateWorkContext_ErrorOnNotFound(t *testing.T) {
+	s := newTestStore(t)
+	err := s.UpdateWorkContext(context.Background(), "nonexistent", nil, "", "")
+	if err == nil {
+		t.Error("expected error when updating non-existent issue, got nil")
+	}
+}
+
 func TestHasIssuesForClient(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

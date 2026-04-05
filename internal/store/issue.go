@@ -40,9 +40,9 @@ func (s *Store) UpsertIssue(ctx context.Context, ir IssueRecord) error {
 	if err != nil {
 		return fmt.Errorf("encoding labels: %w", err)
 	}
-	rawData := string(ir.RawData)
-	if rawData == "" {
-		rawData = "null"
+	rawDataNull := sql.NullString{
+		String: string(ir.RawData),
+		Valid:  len(ir.RawData) > 0,
 	}
 
 	_, err = s.db.ExecContext(ctx, `
@@ -58,7 +58,7 @@ func (s *Store) UpsertIssue(ctx context.Context, ir IssueRecord) error {
 			fetched_at  = excluded.fetched_at`,
 		ir.ID, ir.Client, ir.Key, ir.Title, ir.Status,
 		nullableString(ir.Priority), ir.Description,
-		string(labelsJSON), rawData, encodeTime(ir.FetchedAt),
+		string(labelsJSON), rawDataNull, encodeTime(ir.FetchedAt),
 	)
 	if err != nil {
 		return fmt.Errorf("upserting issue %q: %w", ir.ID, err)
@@ -107,12 +107,15 @@ func (s *Store) UpdateWorkContext(ctx context.Context, id string, repos []string
 	if err != nil {
 		return fmt.Errorf("encoding repos: %w", err)
 	}
-	_, err = s.db.ExecContext(ctx,
+	res, err := s.db.ExecContext(ctx,
 		`UPDATE issues SET repos = ?, workspace = ?, environment = ? WHERE id = ?`,
 		string(reposJSON), nullableString(workspace), nullableString(environment), id,
 	)
 	if err != nil {
 		return fmt.Errorf("updating work context for %q: %w", id, err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("issue %q not found", id)
 	}
 	return nil
 }
@@ -138,7 +141,7 @@ func scanIssueRow(s scanner) (*IssueRecord, error) {
 		ir             IssueRecord
 		priorityNull   sql.NullString
 		labelsStr      string
-		rawDataStr     string
+		rawDataNull    sql.NullString
 		fetchedAtStr   string
 		reposNull      sql.NullString
 		workspaceNull  sql.NullString
@@ -150,14 +153,14 @@ func scanIssueRow(s scanner) (*IssueRecord, error) {
 
 	if err := s.Scan(
 		&ir.ID, &ir.Client, &ir.Key, &ir.Title, &ir.Status,
-		&priorityNull, &ir.Description, &labelsStr, &rawDataStr, &fetchedAtStr,
+		&priorityNull, &ir.Description, &labelsStr, &rawDataNull, &fetchedAtStr,
 		&reposNull, &workspaceNull, &envNull, &notesNull, &startedAtNull, &finishedAtNull,
 	); err != nil {
 		return nil, fmt.Errorf("scanning issue: %w", err)
 	}
 
 	ir.Priority = priorityNull.String
-	ir.RawData = json.RawMessage(rawDataStr)
+	ir.RawData = json.RawMessage(rawDataNull.String)
 	ir.Workspace = workspaceNull.String
 	ir.Environment = envNull.String
 	ir.Notes = notesNull.String
