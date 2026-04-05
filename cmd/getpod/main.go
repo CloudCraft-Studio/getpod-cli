@@ -10,6 +10,7 @@ import (
 	"github.com/CloudCraft-Studio/getpod-cli/internal/config"
 	"github.com/CloudCraft-Studio/getpod-cli/internal/plugin"
 	"github.com/CloudCraft-Studio/getpod-cli/internal/state"
+	"github.com/CloudCraft-Studio/getpod-cli/internal/store"
 	"github.com/CloudCraft-Studio/getpod-cli/internal/tui"
 )
 
@@ -94,7 +95,6 @@ var rootCmd = &cobra.Command{
 }
 
 func runTUI(cmd *cobra.Command, args []string) error {
-	// Load config if not already loaded
 	if cfg == nil {
 		path := cfgFile
 		if path == "" {
@@ -102,7 +102,6 @@ func runTUI(cmd *cobra.Command, args []string) error {
 				path = envPath
 			}
 		}
-
 		var err error
 		cfg, err = config.Load(path)
 		if err != nil {
@@ -111,11 +110,18 @@ func runTUI(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Create app
-	app := tui.NewApp(cfg, reg)
+	db, err := store.NewStore(store.DefaultDBPath())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "⚠ No se pudo abrir la base de datos: %v\n", err)
+		db = nil // App handles nil db gracefully
+	}
+	if db != nil {
+		defer db.Close()
+	}
+
+	app := tui.NewApp(cfg, reg, db)
 	p := tea.NewProgram(app, tea.WithAltScreen())
 
-	// Run TUI
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("error running TUI: %w", err)
 	}
