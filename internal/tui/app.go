@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -118,13 +119,18 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		a.width = msg.Width
 		a.height = msg.Height
+		var cmds []tea.Cmd
 		if a.issueList != nil {
-			a.issueList.Update(msg) //nolint — propagate size, ignore returned model
+			m, cmd := a.issueList.Update(msg)
+			a.issueList = m.(*IssueListModel)
+			cmds = append(cmds, cmd)
 		}
 		if a.issueDetail != nil {
-			a.issueDetail.Update(msg) //nolint
+			m, cmd := a.issueDetail.Update(msg)
+			a.issueDetail = m.(*IssueDetailModel)
+			cmds = append(cmds, cmd)
 		}
-		return a, nil
+		return a, tea.Batch(cmds...)
 
 	// ── Modal message routing ──────────────────────────────────────────────
 
@@ -147,6 +153,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ModalClosedMsg:
 		a.hasModal = false
 		a.activeModal = nil
+		return a, nil
 
 	case OpenRepoPickerMsg:
 		var preselected []string
@@ -478,13 +485,7 @@ func (a *App) getSortedClientNames() []string {
 	for name := range a.cfg.Clients {
 		names = append(names, name)
 	}
-	for i := 0; i < len(names); i++ {
-		for j := i + 1; j < len(names); j++ {
-			if names[i] > names[j] {
-				names[i], names[j] = names[j], names[i]
-			}
-		}
-	}
+	sort.Strings(names)
 	return names
 }
 
