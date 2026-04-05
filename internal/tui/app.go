@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -12,7 +13,8 @@ import (
 )
 
 const (
-	AppTitle = "getpod v0.1.0"
+	AppTitle   = "GETPOD"
+	AppVersion = "v0.1.0"
 )
 
 type View int
@@ -30,12 +32,10 @@ type App struct {
 	styles Styles
 
 	// UI state
-	width     int
-	height    int
-	clientIdx int
-	view      View
-
-	// Footer hints
+	width       int
+	height      int
+	clientIdx   int
+	view        View
 	footerHints []string
 }
 
@@ -52,14 +52,12 @@ func (a *App) Init() tea.Cmd {
 	// Load state
 	st, err := state.Load()
 	if err != nil {
-		// Continue with empty state
 		st = &state.State{}
 	}
 	a.st = st
 
 	// Determine active client
 	if a.st.ActiveClient != "" {
-		// Find index of active client
 		idx := 0
 		for name := range a.cfg.Clients {
 			if name == a.st.ActiveClient {
@@ -70,7 +68,6 @@ func (a *App) Init() tea.Cmd {
 		}
 	}
 
-	// Update footer hints
 	a.updateFooterHints()
 
 	return tea.Batch(
@@ -82,7 +79,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "q", "ctrl+c":
+		case "q", "ctrl+c", "esc":
 			return a, tea.Quit
 		case "tab":
 			a.nextClient()
@@ -116,107 +113,175 @@ func (a *App) View() string {
 		return "Initializing..."
 	}
 
+	// Build the UI with a bordered container
 	header := a.renderHeader()
 	nav := a.renderNav()
 	content := a.renderContent()
 	footer := a.renderFooter()
 
-	// Calculate heights
+	// Calculate available height for content
 	headerHeight := lipgloss.Height(header)
 	navHeight := lipgloss.Height(nav)
 	footerHeight := lipgloss.Height(footer)
 
-	availableHeight := a.height - headerHeight - navHeight - footerHeight - 2
+	// Account for border (2 lines), padding, and spacing
+	availableHeight := a.height - headerHeight - navHeight - footerHeight - 6
 
-	if availableHeight < 0 {
-		availableHeight = 0
+	if availableHeight < 3 {
+		availableHeight = 3
 	}
 
 	content = a.styles.ContentArea.
+		Width(a.width - 4).
 		Height(availableHeight).
 		Render(content)
 
-	return a.styles.AppContainer.
+	// Combine all components
+	body := lipgloss.JoinVertical(
+		lipgloss.Left,
+		header,
+		nav,
+		content,
+		footer,
+	)
+
+	// Add main container with border
+	container := lipgloss.NewStyle().
+		BorderStyle(a.styles.BorderRounded).
+		BorderForeground(Surface700).
+		Background(Surface950).
 		Width(a.width).
 		Height(a.height).
-		Render(lipgloss.JoinVertical(
-			lipgloss.Left,
-			header,
-			nav,
-			content,
-			footer,
-		))
+		Render(body)
+
+	return container
 }
 
 func (a *App) renderHeader() string {
 	clientName, _ := a.getActiveClient()
 
-	// Top bar: App title + planning tool + issue count
-	topBar := a.styles.TopBar.Width(a.width).Render(
-		lipgloss.JoinHorizontal(
-			lipgloss.Left,
-			a.styles.Title.Render(AppTitle),
-			"          ",
-			a.styles.Subtitle.Render(fmt.Sprintf("%s · %d issues", a.getPlanningTool(), a.getIssueCount())),
-		),
+	// Brand title
+	brand := a.styles.BrandText.Render(AppTitle + " " + AppVersion)
+
+	// Planning tool and issue count
+	planningTool := a.getPlanningTool()
+	issueCount := a.getIssueCount()
+
+	var toolBadge string
+	if planningTool != "None" {
+		toolBadge = a.styles.Badge.
+			Background(Primary500).
+			Foreground(Surface950).
+			Render(planningTool)
+	} else {
+		toolBadge = a.styles.Badge.Render("No plugin")
+	}
+
+	issueBadge := a.styles.Muted.Render(fmt.Sprintf("%d issues", issueCount))
+
+	rightInfo := lipgloss.JoinHorizontal(
+		lipgloss.Left,
+		toolBadge,
+		"  ",
+		issueBadge,
 	)
 
-	// Client tabs
-	clientTabs := a.styles.ClientTabActive.Render("• " + clientName)
+	// Top bar with brand and info
+	topBarWidth := a.width - 4 // Account for padding
+	spacer := strings.Repeat(" ", max(0, topBarWidth-lipgloss.Width(brand)-lipgloss.Width(rightInfo)-2))
 
-	return lipgloss.JoinVertical(lipgloss.Left, topBar, clientTabs)
+	topBar := a.styles.TopBar.
+		Width(topBarWidth).
+		Render(lipgloss.JoinHorizontal(lipgloss.Left, brand, spacer, rightInfo))
+
+	// Client tabs
+	clientTab := a.styles.ClientTabActive.Render("● " + clientName)
+
+	return lipgloss.JoinVertical(lipgloss.Left, topBar, clientTab)
 }
 
 func (a *App) renderNav() string {
-	tabs := []string{
-		"[1] Issues",
-		"[2] PRs",
-		"[3] Status",
+	tabs := []struct {
+		label string
+		view  View
+	}{
+		{"[1] Issues", ViewIssues},
+		{"[2] PRs", ViewPRs},
+		{"[3] Status", ViewStatus},
 	}
 
 	var renderedTabs []string
-	for i, tab := range tabs {
+	for _, tab := range tabs {
 		style := a.styles.NavTab
-		if View(i) == a.view {
+		if tab.view == a.view {
 			style = a.styles.NavTabActive
 		}
-		renderedTabs = append(renderedTabs, style.Render(tab))
+		renderedTabs = append(renderedTabs, style.Render(tab.label))
 	}
 
 	return lipgloss.NewStyle().
-		Width(a.width).
+		Width(a.width-4).
+		Padding(1, 0).
 		Render(lipgloss.JoinHorizontal(lipgloss.Left, renderedTabs...))
 }
 
 func (a *App) renderContent() string {
 	switch a.view {
 	case ViewIssues:
-		return "Issues view (placeholder) - Press 'q' to quit\n\n• No plugin configured\n• Press 1, 2, 3 to switch views\n• Tab to switch clients"
+		return a.renderIssuesView()
 	case ViewPRs:
-		return "PRs view (coming soon)"
+		return a.styles.Placeholder.Render("Pull requests view (coming soon)")
 	case ViewStatus:
-		return "Status view (coming soon)"
+		return a.styles.Placeholder.Render("Status view (coming soon)")
 	default:
 		return "Unknown view"
 	}
 }
 
+func (a *App) renderIssuesView() string {
+	var lines []string
+
+	lines = append(lines, a.styles.Title.Render("📋 Issues"))
+	lines = append(lines, "")
+
+	// Check if plugin is configured
+	planningTool := a.getPlanningTool()
+	if planningTool == "None" {
+		lines = append(lines, a.styles.Muted.Render("No planning tool configured"))
+		lines = append(lines, "")
+		lines = append(lines, a.styles.Paragraph.Render("Configure a plugin (Jira, Linear, etc.) to see your issues here."))
+		lines = append(lines, "")
+		lines = append(lines, a.styles.Muted.Render("Example: Edit ~/.getpod/config.yaml"))
+	} else {
+		lines = append(lines, a.styles.Placeholder.Render(fmt.Sprintf("Loading issues from %s...", planningTool)))
+		lines = append(lines, "")
+		lines = append(lines, a.styles.Muted.Render("Plugin integration coming soon"))
+	}
+
+	return lipgloss.JoinVertical(lipgloss.Left, lines...)
+}
+
 func (a *App) renderFooter() string {
 	if len(a.footerHints) == 0 {
-		return a.styles.Footer.Width(a.width).Render("")
+		return a.styles.Footer.Width(a.width - 4).Render("")
 	}
 
 	var hints []string
-	for i, hint := range a.footerHints {
-		if i > 0 {
-			hints = append(hints, "·")
+	for _, hint := range a.footerHints {
+		// Split on space to style key and description
+		parts := strings.SplitN(hint, " ", 2)
+		if len(parts) == 2 {
+			hints = append(hints, a.styles.HelpKey.Render(parts[0])+" "+a.styles.HelpDesc.Render(parts[1]))
+		} else {
+			hints = append(hints, a.styles.HelpDesc.Render(hint))
 		}
-		hints = append(hints, hint)
 	}
 
-	return a.styles.Footer.Width(a.width).Render(
-		lipgloss.JoinHorizontal(lipgloss.Left, hints...),
-	)
+	hintText := strings.Join(hints, "  •  ")
+
+	return a.styles.Footer.
+		Width(a.width - 4).
+		Render(hintText)
 }
 
 // Helper methods
@@ -278,8 +343,15 @@ func (a *App) getIssueCount() int {
 func (a *App) updateFooterHints() {
 	switch a.view {
 	case ViewIssues:
-		a.footerHints = []string{"↑↓ Nav", "⏎ Open", "/ Filter", "tab Client"}
+		a.footerHints = []string{"↑↓ Navigate", "⏎ Open", "/ Filter", "tab Switch Client", "q Quit"}
 	case ViewPRs, ViewStatus:
-		a.footerHints = []string{"↑↓ Nav", "⏎ Open", "esc Back", "tab Client"}
+		a.footerHints = []string{"↑↓ Navigate", "⏎ Open", "esc Back", "tab Switch Client", "q Quit"}
 	}
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
