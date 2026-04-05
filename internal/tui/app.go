@@ -141,7 +141,20 @@ func (a *App) View() string {
 	clientButtons := a.renderClientButtons()
 	nav := a.renderNav()
 	content := a.renderContent()
-	footer := a.renderFooter()
+
+	// Content area with border
+	contentPanel := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(Surface700).
+		Padding(1, 2).
+		Render(lipgloss.JoinVertical(lipgloss.Left, nav, "", content))
+
+	// Footer with border
+	footerPanel := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(Surface700).
+		Padding(0, 2).
+		Render(a.renderFooter())
 
 	// Stack sections
 	body := lipgloss.JoinVertical(
@@ -150,9 +163,9 @@ func (a *App) View() string {
 		"",
 		clientButtons,
 		"",
-		nav,
+		contentPanel,
 		"",
-		content,
+		footerPanel,
 	)
 
 	// Main container
@@ -162,14 +175,7 @@ func (a *App) View() string {
 		Padding(1, 2).
 		Render(body)
 
-	// Add footer at the bottom
-	fullView := lipgloss.JoinVertical(
-		lipgloss.Left,
-		container,
-		footer,
-	)
-
-	return fullView
+	return container
 }
 
 func (a *App) renderHeader() string {
