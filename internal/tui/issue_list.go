@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -67,6 +68,8 @@ func (m *IssueListModel) refreshCmd() tea.Cmd {
 	}
 }
 
+// fetchFromPlugin uses the first PlanningPlugin found in the registry.
+// Each client is expected to have exactly one planning plugin (Jira or Linear).
 func (m *IssueListModel) fetchFromPlugin(ctx context.Context) tea.Msg {
 	for _, name := range m.reg.ActivePlugins() {
 		p, ok := m.reg.Get(name)
@@ -96,13 +99,16 @@ func (m *IssueListModel) fetchFromPlugin(ctx context.Context) tea.Msg {
 				RawData:     iss.RawData,
 				FetchedAt:   now,
 			}
-			if upsertErr := m.db.UpsertIssue(ctx, ir); upsertErr == nil {
+			if upsertErr := m.db.UpsertIssue(ctx, ir); upsertErr != nil {
+				slog.Warn("failed to upsert issue", "id", ir.ID, "error", upsertErr)
+				records = append(records, ir) // use in-memory version if DB fails
+			} else {
 				// Re-read to pick up preserved work context
 				if full, readErr := m.db.GetIssue(ctx, ir.ID); readErr == nil && full != nil {
 					records = append(records, *full)
-					continue
+				} else {
+					records = append(records, ir)
 				}
-				records = append(records, ir)
 			}
 		}
 		return IssuesFetchedMsg{Client: m.client, Issues: records}
@@ -165,8 +171,9 @@ func (m *IssueListModel) handleFilterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.filter = ""
 		m.applyFilter()
 	case "backspace":
-		if len(m.filter) > 0 {
-			m.filter = m.filter[:len(m.filter)-1]
+		runes := []rune(m.filter)
+		if len(runes) > 0 {
+			m.filter = string(runes[:len(runes)-1])
 			m.applyFilter()
 		}
 	case "enter":
@@ -278,8 +285,9 @@ func issuePriorityLabel(priority string, s Styles) string {
 }
 
 func truncateStr(s string, max int) string {
-	if len(s) <= max {
+	runes := []rune(s)
+	if len(runes) <= max {
 		return s
 	}
-	return s[:max-3] + "..."
+	return string(runes[:max-3]) + "..."
 }
