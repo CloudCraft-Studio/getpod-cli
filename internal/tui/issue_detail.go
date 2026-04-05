@@ -57,7 +57,10 @@ func (m *IssueDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.descOffset--
 			}
 		case "down", "j":
-			m.descOffset++
+			descLines := len(strings.Split(m.issue.Description, "\n"))
+			if m.descOffset < descLines-1 {
+				m.descOffset++
+			}
 		case "w":
 			return m, func() tea.Msg { return OpenRepoPickerMsg{} }
 		case "x":
@@ -72,6 +75,9 @@ func (m *IssueDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *IssueDetailModel) persistWorkContextCmd() tea.Cmd {
+	if m.db == nil {
+		return nil
+	}
 	issue := m.issue
 	db := m.db
 	return func() tea.Msg {
@@ -146,14 +152,8 @@ func (m *IssueDetailModel) renderDescription() string {
 		return m.styles.Muted.Render("(no description)")
 	}
 	lines := strings.Split(m.issue.Description, "\n")
-	if m.descOffset >= len(lines) {
-		m.descOffset = len(lines) - 1
-	}
 	const maxVisible = 6
-	end := m.descOffset + maxVisible
-	if end > len(lines) {
-		end = len(lines)
-	}
+	end := min(m.descOffset+maxVisible, len(lines))
 	text := strings.Join(lines[m.descOffset:end], "\n")
 	if len(lines) > maxVisible {
 		text += "\n" + m.styles.Muted.Render(fmt.Sprintf("(%d/%d lines, ↑↓ to scroll)", m.descOffset+1, len(lines)))

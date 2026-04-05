@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/CloudCraft-Studio/getpod-cli/internal/config"
@@ -62,7 +63,7 @@ func TestIssueDetailModel_MissingContext_AllMissing(t *testing.T) {
 	m := newTestDetailModel(store.IssueRecord{})
 	got := m.missingContext()
 	for _, want := range []string{"repos", "workspace", "environment"} {
-		if !containsSubstr(got, want) {
+		if !strings.Contains(got, want) {
 			t.Errorf("expected %q in missing context, got %q", want, got)
 		}
 	}
@@ -73,19 +74,11 @@ func TestIssueDetailModel_MissingContext_OnlyMissingEnv(t *testing.T) {
 		Repos: []string{"r"}, Workspace: "ws",
 	})
 	got := m.missingContext()
-	if !containsSubstr(got, "environment") {
+	if !strings.Contains(got, "environment") {
 		t.Errorf("expected 'environment' in %q", got)
 	}
-	if containsSubstr(got, "repos") || containsSubstr(got, "workspace") {
+	if strings.Contains(got, "repos") || strings.Contains(got, "workspace") {
 		t.Errorf("unexpected items in %q", got)
 	}
 }
 
-func containsSubstr(s, sub string) bool {
-	for i := 0; i <= len(s)-len(sub); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
-	}
-	return false
-}
