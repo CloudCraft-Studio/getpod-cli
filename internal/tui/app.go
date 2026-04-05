@@ -25,6 +25,13 @@ const (
 	ViewStatus
 )
 
+type FocusArea int
+
+const (
+	FocusClients FocusArea = iota
+	FocusContent
+)
+
 type App struct {
 	cfg    *config.Config
 	reg    *plugin.Registry
@@ -32,11 +39,11 @@ type App struct {
 	styles Styles
 
 	// UI state
-	width       int
-	height      int
-	clientIdx   int
-	view        View
-	footerHints []string
+	width     int
+	height    int
+	clientIdx int
+	view      View
+	focus     FocusArea
 }
 
 func NewApp(cfg *config.Config, reg *plugin.Registry) *App {
@@ -45,6 +52,7 @@ func NewApp(cfg *config.Config, reg *plugin.Registry) *App {
 		reg:    reg,
 		styles: DefaultStyles(),
 		view:   ViewIssues,
+		focus:  FocusContent, // Start with content focused
 	}
 }
 
@@ -59,16 +67,15 @@ func (a *App) Init() tea.Cmd {
 	// Determine active client
 	if a.st.ActiveClient != "" {
 		idx := 0
-		for name := range a.cfg.Clients {
+		clientNames := a.getSortedClientNames()
+		for i, name := range clientNames {
 			if name == a.st.ActiveClient {
-				a.clientIdx = idx
+				idx = i
 				break
 			}
-			idx++
 		}
+		a.clientIdx = idx
 	}
-
-	a.updateFooterHints()
 
 	return tea.EnterAltScreen
 }
@@ -77,25 +84,44 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "q", "ctrl+c", "esc":
+		case "q", "ctrl+c":
 			return a, tea.Quit
+		case "esc":
+			// ESC switches between clients and content
+			if a.focus == FocusContent {
+				a.focus = FocusClients
+			}
+			return a, nil
 		case "tab":
-			a.nextClient()
+			if a.focus == FocusClients {
+				a.nextClient()
+			}
 			return a, nil
 		case "shift+tab":
-			a.prevClient()
+			if a.focus == FocusClients {
+				a.prevClient()
+			}
+			return a, nil
+		case "enter":
+			if a.focus == FocusClients {
+				// Enter on client switches to content
+				a.focus = FocusContent
+			}
 			return a, nil
 		case "1":
-			a.view = ViewIssues
-			a.updateFooterHints()
+			if a.focus == FocusContent {
+				a.view = ViewIssues
+			}
 			return a, nil
 		case "2":
-			a.view = ViewPRs
-			a.updateFooterHints()
+			if a.focus == FocusContent {
+				a.view = ViewPRs
+			}
 			return a, nil
 		case "3":
-			a.view = ViewStatus
-			a.updateFooterHints()
+			if a.focus == FocusContent {
+				a.view = ViewStatus
+			}
 			return a, nil
 		}
 	case tea.WindowSizeMsg:
@@ -111,18 +137,38 @@ func (a *App) View() string {
 		return "Initializing..."
 	}
 
-	// Build sections without conflicting backgrounds
 	header := a.renderHeader()
+	clientButtons := a.renderClientButtons()
 	nav := a.renderNav()
 	content := a.renderContent()
-	footer := a.renderFooter()
 
-	// Stack sections vertically
-	sections := []string{header, "", nav, "", content, "", footer}
+	// Content area with border
+	contentPanel := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(Surface700).
+		Padding(1, 2).
+		Render(lipgloss.JoinVertical(lipgloss.Left, nav, "", content))
 
-	body := lipgloss.JoinVertical(lipgloss.Left, sections...)
+	// Footer with border
+	footerPanel := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(Surface700).
+		Padding(0, 2).
+		Render(a.renderFooter())
 
-	// Main container - simple rounded border
+	// Stack sections
+	body := lipgloss.JoinVertical(
+		lipgloss.Left,
+		header,
+		"",
+		clientButtons,
+		"",
+		contentPanel,
+		"",
+		footerPanel,
+	)
+
+	// Main container
 	container := lipgloss.NewStyle().
 		Border(a.styles.BorderRounded).
 		BorderForeground(Surface700).
@@ -133,9 +179,6 @@ func (a *App) View() string {
 }
 
 func (a *App) renderHeader() string {
-	clientName, _ := a.getActiveClient()
-
-	// Line 1: Brand and metadata
 	brand := a.styles.BrandText.Render(AppTitle + " " + AppVersion)
 
 	planningTool := a.getPlanningTool()
@@ -150,19 +193,40 @@ func (a *App) renderHeader() string {
 		toolInfo = a.styles.Muted.Render("No plugin configured")
 	}
 
-	// Calculate spacing
 	spacerWidth := a.width - lipgloss.Width(brand) - lipgloss.Width(toolInfo) - 8
 	if spacerWidth < 1 {
 		spacerWidth = 1
 	}
 	spacer := strings.Repeat(" ", spacerWidth)
 
-	line1 := brand + spacer + toolInfo
+	return brand + spacer + toolInfo
+}
 
-	// Line 2: Client tab
-	clientTab := a.styles.ClientTabActive.Render("● " + clientName)
+func (a *App) renderClientButtons() string {
+	var buttons []string
 
-	return lipgloss.JoinVertical(lipgloss.Left, line1, clientTab)
+	clientNames := a.getSortedClientNames()
+
+	for idx, name := range clientNames {
+		client := a.cfg.Clients[name]
+		displayName := client.DisplayName
+		if displayName == "" {
+			displayName = name
+		}
+
+		var button string
+		if idx == a.clientIdx {
+			// Active button - cyan border
+			button = a.styles.ClientButtonActive.Render(" " + displayName + " ")
+		} else {
+			// Inactive button - gray border
+			button = a.styles.ClientButton.Render(" " + displayName + " ")
+		}
+
+		buttons = append(buttons, button)
+	}
+
+	return lipgloss.JoinHorizontal(lipgloss.Left, buttons...)
 }
 
 func (a *App) renderNav() string {
@@ -223,39 +287,70 @@ func (a *App) renderIssuesView() string {
 }
 
 func (a *App) renderFooter() string {
-	if len(a.footerHints) == 0 {
-		return ""
-	}
-
 	var hints []string
-	for _, hint := range a.footerHints {
-		parts := strings.SplitN(hint, " ", 2)
-		if len(parts) == 2 {
-			hints = append(hints, a.styles.HelpKey.Render(parts[0])+" "+a.styles.HelpDesc.Render(parts[1]))
-		} else {
-			hints = append(hints, a.styles.HelpDesc.Render(hint))
+
+	if a.focus == FocusClients {
+		// Hints for client selection
+		hints = []string{
+			a.styles.HelpKey.Render("tab") + " " + a.styles.HelpDesc.Render("Switch"),
+			a.styles.HelpKey.Render("⏎") + " " + a.styles.HelpDesc.Render("Select"),
+			a.styles.HelpKey.Render("q") + " " + a.styles.HelpDesc.Render("Quit"),
+		}
+	} else {
+		// Hints for content (varies by view)
+		switch a.view {
+		case ViewIssues:
+			hints = []string{
+				a.styles.HelpKey.Render("↑↓") + " " + a.styles.HelpDesc.Render("Navigate"),
+				a.styles.HelpKey.Render("⏎") + " " + a.styles.HelpDesc.Render("Open"),
+				a.styles.HelpKey.Render("/") + " " + a.styles.HelpDesc.Render("Filter"),
+				a.styles.HelpKey.Render("ESC") + " " + a.styles.HelpDesc.Render("Salir (Ir a clientes)"),
+			}
+		case ViewPRs, ViewStatus:
+			hints = []string{
+				a.styles.HelpKey.Render("↑↓") + " " + a.styles.HelpDesc.Render("Navigate"),
+				a.styles.HelpKey.Render("⏎") + " " + a.styles.HelpDesc.Render("Open"),
+				a.styles.HelpKey.Render("ESC") + " " + a.styles.HelpDesc.Render("Back"),
+			}
 		}
 	}
 
-	return strings.Join(hints, "  •  ")
+	hintText := strings.Join(hints, "  •  ")
+
+	return lipgloss.NewStyle().
+		Foreground(Content400).
+		Padding(0, 2).
+		Render(hintText)
 }
 
 // Helper methods
-func (a *App) getActiveClient() (string, config.ClientConfig) {
-	var name string
-	var client config.ClientConfig
-
-	idx := 0
-	for n, c := range a.cfg.Clients {
-		if idx == a.clientIdx {
-			name = n
-			client = c
-			break
-		}
-		idx++
+func (a *App) getSortedClientNames() []string {
+	var clientNames []string
+	for name := range a.cfg.Clients {
+		clientNames = append(clientNames, name)
 	}
 
-	return name, client
+	// Sort alphabetically
+	for i := 0; i < len(clientNames); i++ {
+		for j := i + 1; j < len(clientNames); j++ {
+			if clientNames[i] > clientNames[j] {
+				clientNames[i], clientNames[j] = clientNames[j], clientNames[i]
+			}
+		}
+	}
+
+	return clientNames
+}
+
+func (a *App) getActiveClient() (string, config.ClientConfig) {
+	clientNames := a.getSortedClientNames()
+
+	if a.clientIdx < len(clientNames) {
+		name := clientNames[a.clientIdx]
+		return name, a.cfg.Clients[name]
+	}
+
+	return "", config.ClientConfig{}
 }
 
 func (a *App) updateActiveClient() {
@@ -294,13 +389,4 @@ func (a *App) getPlanningTool() string {
 
 func (a *App) getIssueCount() int {
 	return 0 // Placeholder
-}
-
-func (a *App) updateFooterHints() {
-	switch a.view {
-	case ViewIssues:
-		a.footerHints = []string{"↑↓ Navigate", "⏎ Open", "/ Filter", "tab Switch", "q Quit"}
-	case ViewPRs, ViewStatus:
-		a.footerHints = []string{"↑↓ Navigate", "⏎ Open", "esc Back", "tab Switch", "q Quit"}
-	}
 }
