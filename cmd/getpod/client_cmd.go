@@ -3,8 +3,13 @@ package main
 import (
 	"fmt"
 
+	"github.com/CloudCraft-Studio/getpod-cli/internal/config"
 	"github.com/CloudCraft-Studio/getpod-cli/internal/state"
 	"github.com/spf13/cobra"
+)
+
+var (
+	clientAddDisplayName string
 )
 
 var clientCmd = &cobra.Command{
@@ -80,8 +85,67 @@ var clientUseCmd = &cobra.Command{
 	},
 }
 
+var clientAddCmd = &cobra.Command{
+	Use:   "add [nombre]",
+	Short: "Agrega un nuevo cliente",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		name := args[0]
+
+		if cfg == nil {
+			return fmt.Errorf("no hay configuración cargada")
+		}
+
+		// Initialize Clients map if nil
+		if cfg.Clients == nil {
+			cfg.Clients = make(map[string]config.ClientConfig)
+		}
+
+		// Check if client already exists
+		if _, exists := cfg.Clients[name]; exists {
+			return fmt.Errorf("el cliente %q ya existe", name)
+		}
+
+		// Create new client
+		displayName := clientAddDisplayName
+		if displayName == "" {
+			displayName = name
+		}
+
+		newClient := config.ClientConfig{
+			DisplayName: displayName,
+			Plugins:     make(map[string]map[string]string),
+			Workspaces:  make(map[string]config.WorkspaceConfig),
+		}
+
+		cfg.Clients[name] = newClient
+
+		// Save config
+		configPath := cfgFile
+		if configPath == "" {
+			configPath = config.DefaultConfigPath()
+		}
+
+		if err := config.Save(cfg, configPath); err != nil {
+			return fmt.Errorf("error guardando config: %w", err)
+		}
+
+		fmt.Printf("✓ Cliente %q agregado exitosamente\n", name)
+		fmt.Printf("  Display Name: %s\n", displayName)
+		fmt.Printf("\nPróximos pasos:\n")
+		fmt.Printf("  1. Edita ~/.getpod/config.yaml para agregar plugins\n")
+		fmt.Printf("  2. Crea workspaces con 'getpod workspace add'\n")
+		fmt.Printf("  3. Activa el cliente con 'getpod client use %s'\n", name)
+
+		return nil
+	},
+}
+
 func init() {
+	clientAddCmd.Flags().StringVar(&clientAddDisplayName, "display-name", "", "Nombre visible del cliente")
+
 	clientCmd.AddCommand(clientListCmd)
 	clientCmd.AddCommand(clientUseCmd)
+	clientCmd.AddCommand(clientAddCmd)
 	rootCmd.AddCommand(clientCmd)
 }

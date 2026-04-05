@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__claude_ai_Linear__get_issue",
+      "Bash(go get:*)",
+      "Bash(go mod:*)",
+      "Bash(go build:*)",
+      "Bash(go test:*)",
+      "Bash(go vet:*)"
+    ]
+  }
+}
