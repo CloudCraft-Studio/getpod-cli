@@ -8,9 +8,6 @@ import (
 // IssueSelectedMsg is emitted by IssueListModel when the user presses Enter on an issue.
 type IssueSelectedMsg struct{ Issue store.IssueRecord }
 
-// NavigateBackMsg is emitted by IssueDetailModel to return to the issue list.
-type NavigateBackMsg struct{}
-
 // ReposSelectedMsg is emitted by RepoPickerModal when the user confirms a selection.
 type ReposSelectedMsg struct{ Repos []string }
 

@@ -193,11 +193,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.screen = screenIssueDetail
 		return a, nil
 
-	case NavigateBackMsg:
-		a.screen = screenIssueList
-		a.issueDetail = nil
-		return a, nil
-
 	// ── Issue fetch result ─────────────────────────────────────────────────
 
 	case IssuesFetchedMsg:
