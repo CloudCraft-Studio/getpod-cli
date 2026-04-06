@@ -77,7 +77,21 @@ var rootCmd = &cobra.Command{
 				key == "config show" {
 				return nil
 			}
-			fmt.Fprintf(os.Stderr, "⚠ Contexto incompleto: %v\n", err)
+
+			// Partial context: set up plugins with client config only (no context merge).
+			// The TUI allows selecting workspace/env interactively, so plugins
+			// only need their base credentials (base_url, email, api_token) to fetch issues.
+			if s.ActiveClient != "" {
+				if client, ok := cfg.Clients[s.ActiveClient]; ok {
+					partial := plugin.ActiveContext{
+						ClientName: s.ActiveClient,
+						Client:     client,
+					}
+					if setupErr := reg.SetupAll(partial); setupErr != nil {
+						fmt.Fprintf(os.Stderr, "⚠ Error en inicialización de plugins: %v\n", setupErr)
+					}
+				}
+			}
 			return nil
 		}
 

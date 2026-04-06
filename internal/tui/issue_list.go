@@ -50,14 +50,16 @@ func (m *IssueListModel) Init() tea.Cmd {
 func (m *IssueListModel) loadCachedCmd() tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
-		issues, err := m.db.ListIssuesByClient(ctx, m.client)
-		if err != nil {
-			return IssuesFetchedMsg{Client: m.client, Err: err}
+		if m.db != nil {
+			issues, err := m.db.ListIssuesByClient(ctx, m.client)
+			if err != nil {
+				return IssuesFetchedMsg{Client: m.client, Err: err}
+			}
+			if len(issues) > 0 {
+				return IssuesFetchedMsg{Client: m.client, Issues: issues}
+			}
 		}
-		if len(issues) > 0 {
-			return IssuesFetchedMsg{Client: m.client, Issues: issues}
-		}
-		// No cache: fetch from plugin
+		// No cache (or no db): fetch from plugin
 		return m.fetchFromPlugin(ctx)
 	}
 }
@@ -99,7 +101,9 @@ func (m *IssueListModel) fetchFromPlugin(ctx context.Context) tea.Msg {
 				RawData:     iss.RawData,
 				FetchedAt:   now,
 			}
-			if upsertErr := m.db.UpsertIssue(ctx, ir); upsertErr != nil {
+			if m.db == nil {
+				records = append(records, ir)
+			} else if upsertErr := m.db.UpsertIssue(ctx, ir); upsertErr != nil {
 				slog.Warn("failed to upsert issue", "id", ir.ID, "error", upsertErr)
 				records = append(records, ir) // use in-memory version if DB fails
 			} else {
