@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"os/exec"
 	"sort"
 	"strings"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/CloudCraft-Studio/getpod-cli/internal/config"
+	"github.com/CloudCraft-Studio/getpod-cli/internal/git"
 	"github.com/CloudCraft-Studio/getpod-cli/internal/plugin"
 	"github.com/CloudCraft-Studio/getpod-cli/internal/state"
 	"github.com/CloudCraft-Studio/getpod-cli/internal/store"
@@ -185,6 +187,92 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.activeModal = modal
 		a.hasModal = true
 		return a, modal.Init()
+
+	// ── Action modal openers (GPOD-118) ────────────────────────────────────
+
+	case OpenBranchConfirmMsg:
+		if a.issueDetail == nil {
+			return a, nil
+		}
+		return a, a.createBranchCmd()
+
+	case OpenCommitModalMsg:
+		if a.issueDetail == nil {
+			return a, nil
+		}
+		modal := NewCommitModal(a.issueDetail.issue.Key, a.styles)
+		a.activeModal = modal
+		a.hasModal = true
+		return a, modal.Init()
+
+	case OpenCommentModalMsg:
+		modal := NewCommentModal(a.styles)
+		a.activeModal = modal
+		a.hasModal = true
+		return a, modal.Init()
+
+	case OpenStatusPickerMsg:
+		if a.issueDetail == nil {
+			return a, nil
+		}
+		modal := NewStatusPickerModal(a.reg, a.issueDetail.issue.Status, a.styles)
+		a.activeModal = modal
+		a.hasModal = true
+		return a, modal.Init()
+
+	case OpenPRModalMsg:
+		if a.issueDetail == nil {
+			return a, nil
+		}
+		issue := a.issueDetail.issue
+		modal := NewPRModal(issue.Key, issue.Title, issue.Environment, issue.Workspace, a.styles)
+		a.activeModal = modal
+		a.hasModal = true
+		return a, modal.Init()
+
+	case OpenPlanAIMsg:
+		if a.issueDetail == nil {
+			return a, nil
+		}
+		return a, a.launchPlanAICmd()
+
+	// ── Action submit messages (from modals → execute action) ──────────────
+
+	case CommitSubmitMsg:
+		a.hasModal = false
+		a.activeModal = nil
+		return a, a.commitPushCmd(msg.Type, msg.Scope, msg.Message)
+
+	case CommentSubmitMsg:
+		a.hasModal = false
+		a.activeModal = nil
+		return a, a.addCommentCmd(msg.Body)
+
+	case StatusSelectedMsg:
+		a.hasModal = false
+		a.activeModal = nil
+		return a, a.changeStatusCmd(msg.Status)
+
+	case PRSubmitMsg:
+		a.hasModal = false
+		a.activeModal = nil
+		return a, a.createPRCmd(msg.Title, msg.Body, msg.BaseBranch)
+
+	// ── Action result messages (forward to detail for feedback) ────────────
+
+	case StatusesFetchedMsg:
+		if a.hasModal {
+			newModal, cmd := a.activeModal.Update(msg)
+			a.activeModal = newModal.(Modal)
+			return a, cmd
+		}
+
+	case BranchCreatedMsg, CommitPushedMsg, PRCreatedMsg, CommentAddedMsg, StatusChangedMsg, PlanStartedMsg:
+		if a.issueDetail != nil {
+			newModel, cmd := a.issueDetail.Update(msg)
+			a.issueDetail = newModel.(*IssueDetailModel)
+			return a, cmd
+		}
 
 	// ── Navigation messages ────────────────────────────────────────────────
 
@@ -452,9 +540,11 @@ func (a *App) renderFooter() string {
 		}
 	} else if a.view == ViewIssues && a.screen == screenIssueDetail {
 		hints = []string{
-			a.styles.HelpKey.Render("[w]") + " " + a.styles.HelpDesc.Render("Repos"),
-			a.styles.HelpKey.Render("[x]") + " " + a.styles.HelpDesc.Render("Workspace"),
-			a.styles.HelpKey.Render("[e]") + " " + a.styles.HelpDesc.Render("Env"),
+			a.styles.HelpKey.Render("[b]") + " " + a.styles.HelpDesc.Render("Branch"),
+			a.styles.HelpKey.Render("[c]") + " " + a.styles.HelpDesc.Render("Commit"),
+			a.styles.HelpKey.Render("[r]") + " " + a.styles.HelpDesc.Render("PR"),
+			a.styles.HelpKey.Render("[m]") + " " + a.styles.HelpDesc.Render("Comment"),
+			a.styles.HelpKey.Render("[s]") + " " + a.styles.HelpDesc.Render("Status"),
 			a.styles.HelpKey.Render("ESC") + " " + a.styles.HelpDesc.Render("Back"),
 		}
 	} else {
@@ -535,4 +625,201 @@ func (a *App) getIssueCount() int {
 		return len(a.issueList.items)
 	}
 	return 0
+}
+
+// ── Action commands (GPOD-118) ─────────────────────────────────────────────
+
+// createBranchCmd creates a feature branch in all selected repos.
+func (a *App) createBranchCmd() tea.Cmd {
+	issue := a.issueDetail.issue
+	repos := issue.Repos
+	branchName := git.BranchNameForIssue(issue.Key)
+
+	return func() tea.Msg {
+		ctx := context.Background()
+		runner := git.NewRunner("")
+		for _, repo := range repos {
+			if err := runner.CreateBranch(ctx, repo, branchName); err != nil {
+				return BranchCreatedMsg{Err: fmt.Errorf("%s: %w", repo, err)}
+			}
+		}
+		return BranchCreatedMsg{Branch: branchName}
+	}
+}
+
+// commitPushCmd commits and pushes in all selected repos.
+func (a *App) commitPushCmd(commitType, scope, message string) tea.Cmd {
+	if a.issueDetail == nil {
+		return nil
+	}
+	repos := a.issueDetail.issue.Repos
+	fullMsg := git.CommitMessage(commitType, scope, message)
+
+	return func() tea.Msg {
+		ctx := context.Background()
+		runner := git.NewRunner("")
+		for _, repo := range repos {
+			if err := runner.Commit(ctx, repo, fullMsg); err != nil {
+				return CommitPushedMsg{Err: fmt.Errorf("commit %s: %w", repo, err)}
+			}
+			if err := runner.Push(ctx, repo); err != nil {
+				return CommitPushedMsg{Err: fmt.Errorf("push %s: %w", repo, err)}
+			}
+		}
+		return CommitPushedMsg{Message: fullMsg}
+	}
+}
+
+// addCommentCmd posts a comment on the issue via the planning plugin.
+func (a *App) addCommentCmd(body string) tea.Cmd {
+	if a.issueDetail == nil || a.reg == nil {
+		return nil
+	}
+	issue := a.issueDetail.issue
+	reg := a.reg
+
+	// Auto-include context in the comment
+	var contextLine string
+	if issue.Workspace != "" || issue.Environment != "" {
+		parts := []string{}
+		if issue.Workspace != "" {
+			parts = append(parts, "Workspace: "+issue.Workspace)
+		}
+		if issue.Environment != "" {
+			parts = append(parts, "Env: "+issue.Environment)
+		}
+		if len(issue.Repos) > 0 {
+			parts = append(parts, "Repos: "+strings.Join(issue.Repos, ", "))
+		}
+		contextLine = "\n\n---\n_" + strings.Join(parts, " · ") + "_"
+	}
+	fullBody := body + contextLine
+
+	return func() tea.Msg {
+		ctx := context.Background()
+		for _, name := range reg.ActivePlugins() {
+			p, ok := reg.Get(name)
+			if !ok {
+				continue
+			}
+			pp, ok := p.(plugin.PlanningPlugin)
+			if !ok {
+				continue
+			}
+			err := pp.AddComment(ctx, issue.Key, fullBody)
+			return CommentAddedMsg{Err: err}
+		}
+		return CommentAddedMsg{Err: fmt.Errorf("no planning plugin configured")}
+	}
+}
+
+// changeStatusCmd changes the issue status via the planning plugin.
+func (a *App) changeStatusCmd(status string) tea.Cmd {
+	if a.issueDetail == nil || a.reg == nil {
+		return nil
+	}
+	issueKey := a.issueDetail.issue.Key
+	reg := a.reg
+
+	return func() tea.Msg {
+		ctx := context.Background()
+		for _, name := range reg.ActivePlugins() {
+			p, ok := reg.Get(name)
+			if !ok {
+				continue
+			}
+			pp, ok := p.(plugin.PlanningPlugin)
+			if !ok {
+				continue
+			}
+			err := pp.ChangeStatus(ctx, issueKey, status)
+			if err != nil {
+				return StatusChangedMsg{Err: err}
+			}
+			return StatusChangedMsg{NewStatus: status}
+		}
+		return StatusChangedMsg{Err: fmt.Errorf("no planning plugin configured")}
+	}
+}
+
+// createPRCmd creates a PR via the PRPlugin for each selected repo.
+func (a *App) createPRCmd(title, body, baseBranch string) tea.Cmd {
+	if a.issueDetail == nil || a.reg == nil {
+		return nil
+	}
+	issue := a.issueDetail.issue
+	repos := issue.Repos
+	reg := a.reg
+
+	return func() tea.Msg {
+		ctx := context.Background()
+
+		// Find the first PRPlugin
+		for _, name := range reg.ActivePlugins() {
+			p, ok := reg.Get(name)
+			if !ok {
+				continue
+			}
+			prp, ok := p.(plugin.PRPlugin)
+			if !ok {
+				continue
+			}
+
+			// Get current branch from the first repo
+			runner := git.NewRunner("")
+			headBranch, err := runner.CurrentBranch(ctx, repos[0])
+			if err != nil {
+				headBranch = git.BranchNameForIssue(issue.Key)
+			}
+
+			var lastURL string
+			for _, repo := range repos {
+				pr, err := prp.CreatePR(ctx, plugin.PRRequest{
+					Repo:       repo,
+					Title:      title,
+					Body:       body,
+					HeadBranch: headBranch,
+					BaseBranch: baseBranch,
+				})
+				if err != nil {
+					return PRCreatedMsg{Err: fmt.Errorf("%s: %w", repo, err)}
+				}
+				lastURL = pr.URL
+			}
+			return PRCreatedMsg{URL: lastURL}
+		}
+		return PRCreatedMsg{Err: fmt.Errorf("no PR plugin configured")}
+	}
+}
+
+// launchPlanAICmd launches the AI planner as an external process.
+// Uses the first available AI tool: opencode, claude, or ollama.
+func (a *App) launchPlanAICmd() tea.Cmd {
+	if a.issueDetail == nil {
+		return nil
+	}
+	issue := a.issueDetail.issue
+
+	// Build the prompt with full work context
+	prompt := fmt.Sprintf(
+		"Plan implementation for issue %s: %s\n\nDescription:\n%s\n\nWorkspace: %s\nEnvironment: %s\nRepos: %s",
+		issue.Key, issue.Title, issue.Description,
+		issue.Workspace, issue.Environment,
+		strings.Join(issue.Repos, ", "),
+	)
+
+	return func() tea.Msg {
+		// Try AI tools in order of preference
+		aiTools := []string{"opencode", "claude", "ollama"}
+		for _, tool := range aiTools {
+			if _, err := exec.LookPath(tool); err == nil {
+				cmd := exec.Command(tool, "--prompt", prompt)
+				if err := cmd.Start(); err != nil {
+					return PlanStartedMsg{Err: fmt.Errorf("failed to start %s: %w", tool, err)}
+				}
+				return PlanStartedMsg{}
+			}
+		}
+		return PlanStartedMsg{Err: fmt.Errorf("no AI tool found (install opencode, claude, or ollama)")}
+	}
 }

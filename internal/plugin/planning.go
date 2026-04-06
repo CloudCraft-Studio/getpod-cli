@@ -21,13 +21,34 @@ type RepoPlugin interface {
 	ListRepos(ctx context.Context) ([]Repo, error)
 }
 
+// PRPlugin is implemented by plugins that can create pull requests.
+// A plugin may implement both RepoPlugin and PRPlugin.
+type PRPlugin interface {
+	CreatePR(ctx context.Context, req PRRequest) (*PR, error)
+}
+
+// PRRequest contains the parameters for creating a pull request.
+type PRRequest struct {
+	Repo       string // repository name
+	Title      string
+	Body       string
+	HeadBranch string // source branch
+	BaseBranch string // target branch (e.g. "develop", "main")
+}
+
+// PR is the result of creating a pull request.
+type PR struct {
+	URL    string
+	Number int
+}
+
 // Issue is a normalized ticket from a planning plugin.
 type Issue struct {
-	ID          string          // globally unique: "pluginname:KEY" e.g. "linear:LULO-1234"
-	Key         string          // display key, e.g. "LULO-1234"
+	ID          string // globally unique: "pluginname:KEY" e.g. "linear:LULO-1234"
+	Key         string // display key, e.g. "LULO-1234"
 	Title       string
 	Status      string
-	Priority    string          // empty when the plugin does not provide priority
+	Priority    string // empty when the plugin does not provide priority
 	Description string
 	Labels      []string
 	RawData     json.RawMessage // full plugin payload — preserved for future extraction
@@ -36,7 +57,7 @@ type Issue struct {
 // Repo is a code repository returned by a RepoPlugin.
 type Repo struct {
 	Name      string
-	Source    string    // "github" | "bitbucket"
+	Source    string // "github" | "bitbucket"
 	Language  string
 	CloneURL  string
 	UpdatedAt time.Time

@@ -22,6 +22,10 @@ type IssueDetailModel struct {
 	styles     Styles
 	width      int
 	height     int
+
+	// Action feedback — shown temporarily after an action completes.
+	actionMsg     string
+	actionSuccess bool
 }
 
 // NewIssueDetailModel constructs the detail view for the given issue.
@@ -50,7 +54,61 @@ func (m *IssueDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.issue.Environment = msg.Env
 		return m, m.persistWorkContextCmd()
 
+	// ── Action result messages ─────────────────────────────────────────
+	case BranchCreatedMsg:
+		if msg.Err != nil {
+			m.actionMsg = fmt.Sprintf("Branch failed: %v", msg.Err)
+			m.actionSuccess = false
+		} else {
+			m.actionMsg = fmt.Sprintf("Branch created: %s", msg.Branch)
+			m.actionSuccess = true
+		}
+	case CommitPushedMsg:
+		if msg.Err != nil {
+			m.actionMsg = fmt.Sprintf("Commit failed: %v", msg.Err)
+			m.actionSuccess = false
+		} else {
+			m.actionMsg = fmt.Sprintf("Committed + pushed: %s", msg.Message)
+			m.actionSuccess = true
+		}
+	case PRCreatedMsg:
+		if msg.Err != nil {
+			m.actionMsg = fmt.Sprintf("PR failed: %v", msg.Err)
+			m.actionSuccess = false
+		} else {
+			m.actionMsg = fmt.Sprintf("PR created: %s", msg.URL)
+			m.actionSuccess = true
+		}
+	case CommentAddedMsg:
+		if msg.Err != nil {
+			m.actionMsg = fmt.Sprintf("Comment failed: %v", msg.Err)
+			m.actionSuccess = false
+		} else {
+			m.actionMsg = "Comment added"
+			m.actionSuccess = true
+		}
+	case StatusChangedMsg:
+		if msg.Err != nil {
+			m.actionMsg = fmt.Sprintf("Status change failed: %v", msg.Err)
+			m.actionSuccess = false
+		} else {
+			m.issue.Status = msg.NewStatus
+			m.actionMsg = fmt.Sprintf("Status changed to: %s", msg.NewStatus)
+			m.actionSuccess = true
+		}
+	case PlanStartedMsg:
+		if msg.Err != nil {
+			m.actionMsg = fmt.Sprintf("Plan failed: %v", msg.Err)
+			m.actionSuccess = false
+		} else {
+			m.actionMsg = "AI planner launched"
+			m.actionSuccess = true
+		}
+
 	case tea.KeyMsg:
+		// Clear action message on any keypress
+		m.actionMsg = ""
+
 		switch msg.String() {
 		case "up", "k":
 			if m.descOffset > 0 {
@@ -61,6 +119,8 @@ func (m *IssueDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.descOffset < descLines-1 {
 				m.descOffset++
 			}
+
+		// ── Work context keybindings ──────────────────────────────────
 		case "w":
 			return m, func() tea.Msg { return OpenRepoPickerMsg{} }
 		case "x":
@@ -68,6 +128,26 @@ func (m *IssueDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "e":
 			if m.issue.Workspace != "" {
 				return m, func() tea.Msg { return OpenEnvPickerMsg{} }
+			}
+
+		// ── Action keybindings ────────────────────────────────────────
+		case "b":
+			if len(m.issue.Repos) > 0 {
+				return m, func() tea.Msg { return OpenBranchConfirmMsg{} }
+			}
+		case "c":
+			return m, func() tea.Msg { return OpenCommitModalMsg{} }
+		case "r":
+			if len(m.issue.Repos) > 0 {
+				return m, func() tea.Msg { return OpenPRModalMsg{} }
+			}
+		case "m":
+			return m, func() tea.Msg { return OpenCommentModalMsg{} }
+		case "s":
+			return m, func() tea.Msg { return OpenStatusPickerMsg{} }
+		case "p":
+			if m.IsReady() {
+				return m, func() tea.Msg { return OpenPlanAIMsg{} }
 			}
 		}
 	}
@@ -125,7 +205,17 @@ func (m *IssueDetailModel) View() string {
 		m.styles.Subtitle.Render("Actions"),
 		m.renderActions(),
 	}
+	if m.actionMsg != "" {
+		sections = append(sections, "", m.renderActionFeedback())
+	}
 	return strings.Join(sections, "\n")
+}
+
+func (m *IssueDetailModel) renderActionFeedback() string {
+	if m.actionSuccess {
+		return lipgloss.NewStyle().Foreground(Success400).Render("✓ " + m.actionMsg)
+	}
+	return lipgloss.NewStyle().Foreground(Danger400).Render("✗ " + m.actionMsg)
 }
 
 func (m *IssueDetailModel) renderHeader() string {
