@@ -63,6 +63,52 @@ func (c *Client) get(ctx context.Context, path string, out any) error {
 	return nil
 }
 
+func (c *Client) post(ctx context.Context, path string, body any) error {
+	url := c.baseURL + path
+
+	var bodyReader io.Reader
+	if body != nil {
+		jsonData, err := json.Marshal(body)
+		if err != nil {
+			return fmt.Errorf("marshaling request body: %w", err)
+		}
+		bodyReader = strings.NewReader(string(jsonData))
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bodyReader)
+	if err != nil {
+		return fmt.Errorf("creating request: %w", err)
+	}
+
+	req.Header.Set("Authorization", c.authHeader)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("making request: %w", err)
+	}
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("reading response: %w", err)
+	}
+
+	// HTTP 204 No Content es éxito sin body
+	if resp.StatusCode == http.StatusNoContent {
+		return nil
+	}
+
+	if resp.StatusCode >= 400 {
+		return c.handleError(resp.StatusCode, respBody)
+	}
+
+	return nil
+}
+
 func (c *Client) handleError(statusCode int, body []byte) error {
 	var jiraErr JiraError
 	if err := json.Unmarshal(body, &jiraErr); err == nil {

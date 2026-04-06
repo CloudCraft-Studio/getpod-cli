@@ -56,6 +56,77 @@ type JiraIssueType struct {
 	Name string `json:"name"`
 }
 
+// Transition representa una transición de estado disponible para un issue
+type Transition struct {
+	ID   string // ID que usa la API para ejecutar la transición
+	Name string // Nombre de la transición ("In Progress", "Done", etc.)
+	To   string // Status destino normalizado
+}
+
+// NormalizedComment representa un comentario normalizado
+type NormalizedComment struct {
+	Author    string
+	Body      string // Texto plano
+	CreatedAt time.Time
+}
+
+// NormalizedIssueDetail extiende NormalizedIssue con información adicional
+type NormalizedIssueDetail struct {
+	Key         string
+	Title       string
+	Status      string
+	Priority    string
+	UpdatedAt   time.Time
+	Source      string
+	URL         string
+	Description string              // Texto plano del description (sin ADF)
+	Comments    []NormalizedComment // Últimos 5 comentarios
+	Subtasks    int                 // Count de subtareas
+	Labels      []string
+}
+
+// JiraTransitionsResponse representa la respuesta de /rest/api/3/issue/{key}/transitions
+type JiraTransitionsResponse struct {
+	Transitions []JiraTransition `json:"transitions"`
+}
+
+// JiraTransition representa una transición individual
+type JiraTransition struct {
+	ID   string     `json:"id"`
+	Name string     `json:"name"`
+	To   JiraStatus `json:"to"`
+}
+
+// JiraComment representa un comentario en la respuesta de Jira
+type JiraComment struct {
+	Author struct {
+		DisplayName string `json:"displayName"`
+	} `json:"author"`
+	Body    any    `json:"body"` // ADF format
+	Created string `json:"created"`
+}
+
+// JiraIssueDetail representa la respuesta completa de /rest/api/3/issue/{key}
+type JiraIssueDetail struct {
+	Key    string                `json:"key"`
+	Fields JiraIssueDetailFields `json:"fields"`
+}
+
+// JiraIssueDetailFields contiene los campos completos del issue
+type JiraIssueDetailFields struct {
+	Summary     string        `json:"summary"`
+	Status      JiraStatus    `json:"status"`
+	Priority    JiraPriority  `json:"priority"`
+	Updated     string        `json:"updated"`
+	IssueType   JiraIssueType `json:"issuetype"`
+	Description any           `json:"description"` // ADF format
+	Comment     struct {
+		Comments []JiraComment `json:"comments"`
+	} `json:"comment"`
+	Subtasks []any    `json:"subtasks"` // Solo necesitamos el count
+	Labels   []string `json:"labels"`
+}
+
 // parseJiraTime parsea el formato de tiempo de Jira a time.Time
 func parseJiraTime(s string) (time.Time, error) {
 	return time.Parse(time.RFC3339, s)
