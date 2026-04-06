@@ -375,7 +375,7 @@ func TestNormalizePriority(t *testing.T) {
 	}
 }
 
-func TestGetIssue_Success(t *testing.T) {
+func TestGetIssueDetail_Success(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !containsString(r.URL.Path, "/rest/api/3/issue/LULO-1234") {
 			t.Errorf("unexpected path: %s", r.URL.Path)
@@ -429,9 +429,9 @@ func TestGetIssue_Success(t *testing.T) {
 		t.Fatalf("Setup() failed: %v", err)
 	}
 
-	detail, err := p.GetIssue(context.Background(), "LULO-1234")
+	detail, err := p.GetIssueDetail(context.Background(), "LULO-1234")
 	if err != nil {
-		t.Fatalf("GetIssue() failed: %v", err)
+		t.Fatalf("GetIssueDetail() failed: %v", err)
 	}
 
 	if detail.Key != "LULO-1234" {
@@ -451,7 +451,7 @@ func TestGetIssue_Success(t *testing.T) {
 	}
 }
 
-func TestGetIssue_MalformedADF(t *testing.T) {
+func TestGetIssueDetail_MalformedADF(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		resp := JiraIssueDetail{
@@ -493,9 +493,9 @@ func TestGetIssue_MalformedADF(t *testing.T) {
 		t.Fatalf("Setup() failed: %v", err)
 	}
 
-	detail, err := p.GetIssue(context.Background(), "LULO-999")
+	detail, err := p.GetIssueDetail(context.Background(), "LULO-999")
 	if err != nil {
-		t.Fatalf("GetIssue() should not fail on malformed ADF: %v", err)
+		t.Fatalf("GetIssueDetail() should not fail on malformed ADF: %v", err)
 	}
 
 	if detail.Description != "" {
@@ -694,6 +694,273 @@ func TestExtractPlainText(t *testing.T) {
 			got := extractPlainText(tt.adf)
 			if got != tt.want {
 				t.Errorf("extractPlainText() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestAddComment_Success tests adding a comment without context
+func TestAddComment_Success(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("expected POST, got %s", r.Method)
+		}
+		if !containsString(r.URL.Path, "/rest/api/3/issue/LULO-1234/comment") {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+
+		// Validate request body contains ADF
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("failed to decode body: %v", err)
+		}
+
+		bodyField, ok := body["body"].(map[string]any)
+		if !ok {
+			t.Errorf("expected body field to be a map, got %T", body["body"])
+		}
+
+		// Validate ADF structure
+		if bodyField["type"] != "doc" {
+			t.Errorf("expected type 'doc', got %v", bodyField["type"])
+		}
+		if bodyField["version"] != float64(1) {
+			t.Errorf("expected version 1, got %v", bodyField["version"])
+		}
+
+		// HTTP 201 Created
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer server.Close()
+
+	p := &Plugin{}
+	cfg := map[string]string{
+		"base_url":  server.URL,
+		"email":     "test@example.com",
+		"api_token": "test-token",
+	}
+
+	if err := p.Setup(cfg); err != nil {
+		t.Fatalf("Setup() failed: %v", err)
+	}
+
+	err := p.AddComment(context.Background(), "LULO-1234", "This is a test comment", nil)
+	if err != nil {
+		t.Fatalf("AddComment() failed: %v", err)
+	}
+}
+
+// TestAddComment_WithContext tests adding a comment with GetPod context
+func TestAddComment_WithContext(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("expected POST, got %s", r.Method)
+		}
+		if !containsString(r.URL.Path, "/rest/api/3/issue/LULO-5678/comment") {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+
+		// Validate request body contains ADF with context
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("failed to decode body: %v", err)
+		}
+
+		bodyADF, ok := body["body"].(map[string]any)
+		if !ok {
+			t.Errorf("expected body field to be a map")
+		}
+
+		// Get the text content from ADF
+		content, ok := bodyADF["content"].([]any)
+		if !ok || len(content) == 0 {
+			t.Errorf("expected content array in ADF")
+			return
+		}
+
+		paragraph, ok := content[0].(map[string]any)
+		if !ok {
+			t.Errorf("expected first content item to be a paragraph")
+			return
+		}
+
+		paragraphContent, ok := paragraph["content"].([]any)
+		if !ok || len(paragraphContent) == 0 {
+			t.Errorf("expected paragraph content")
+			return
+		}
+
+		textNode, ok := paragraphContent[0].(map[string]any)
+		if !ok {
+			t.Errorf("expected text node")
+			return
+		}
+
+		text, ok := textNode["text"].(string)
+		if !ok {
+			t.Errorf("expected text field in node")
+			return
+		}
+
+		// Validate that context is included in the text
+		if !containsString(text, "GetPod context") {
+			t.Errorf("expected 'GetPod context' in comment text, got: %s", text)
+		}
+		if !containsString(text, "Workspace: core-services") {
+			t.Errorf("expected 'Workspace: core-services' in comment, got: %s", text)
+		}
+		if !containsString(text, "Env: qa") {
+			t.Errorf("expected 'Env: qa' in comment, got: %s", text)
+		}
+
+		// HTTP 201 Created
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer server.Close()
+
+	p := &Plugin{}
+	cfg := map[string]string{
+		"base_url":  server.URL,
+		"email":     "test@example.com",
+		"api_token": "test-token",
+	}
+
+	if err := p.Setup(cfg); err != nil {
+		t.Fatalf("Setup() failed: %v", err)
+	}
+
+	gpCtx := &CommentContext{
+		Workspace:   "core-services",
+		Environment: "qa",
+		Branch:      "feature/lulo-5678",
+		Repos:       []string{"backend-core", "infra-terraform"},
+	}
+
+	err := p.AddComment(context.Background(), "LULO-5678", "Test comment with context", gpCtx)
+	if err != nil {
+		t.Fatalf("AddComment() failed: %v", err)
+	}
+}
+
+// TestAddComment_IssueNotFound tests error handling for non-existent issue
+func TestAddComment_IssueNotFound(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		resp := JiraError{
+			ErrorMessages: []string{"Issue not found"},
+		}
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			t.Errorf("failed to encode response: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	p := &Plugin{}
+	cfg := map[string]string{
+		"base_url":  server.URL,
+		"email":     "test@example.com",
+		"api_token": "test-token",
+	}
+
+	if err := p.Setup(cfg); err != nil {
+		t.Fatalf("Setup() failed: %v", err)
+	}
+
+	err := p.AddComment(context.Background(), "NONEXISTENT-999", "This should fail", nil)
+	if err == nil {
+		t.Fatal("expected error for non-existent issue, got nil")
+	}
+
+	if !containsString(err.Error(), "not found") {
+		t.Errorf("expected 'not found' error, got: %v", err)
+	}
+}
+
+// TestBuildADFComment tests the ADF comment builder
+func TestBuildADFComment(t *testing.T) {
+	adf := buildADFComment("Hello world")
+
+	// Validate structure
+	if adf["type"] != "doc" {
+		t.Errorf("expected type 'doc', got %v", adf["type"])
+	}
+	if adf["version"] != 1 {
+		t.Errorf("expected version 1, got %v", adf["version"])
+	}
+
+	// Validate content
+	content, ok := adf["content"].([]map[string]any)
+	if !ok || len(content) == 0 {
+		t.Fatal("expected non-empty content array")
+	}
+
+	paragraph := content[0]
+	if paragraph["type"] != "paragraph" {
+		t.Errorf("expected first item to be a paragraph")
+	}
+
+	paragraphContent, ok := paragraph["content"].([]map[string]any)
+	if !ok || len(paragraphContent) == 0 {
+		t.Fatal("expected paragraph content")
+	}
+
+	textNode := paragraphContent[0]
+	if textNode["type"] != "text" {
+		t.Errorf("expected text node type")
+	}
+	if textNode["text"] != "Hello world" {
+		t.Errorf("expected text 'Hello world', got %v", textNode["text"])
+	}
+}
+
+// TestBuildCommentBody tests the comment body builder with context
+func TestBuildCommentBody(t *testing.T) {
+	tests := []struct {
+		name    string
+		body    string
+		gpCtx   *CommentContext
+		wantCtx bool
+	}{
+		{
+			name:    "no context",
+			body:    "Just a comment",
+			gpCtx:   nil,
+			wantCtx: false,
+		},
+		{
+			name: "with context",
+			body: "Working on this",
+			gpCtx: &CommentContext{
+				Workspace:   "prod",
+				Environment: "staging",
+				Repos:       []string{"api", "web"},
+			},
+			wantCtx: true,
+		},
+		{
+			name:    "empty context",
+			body:    "Another comment",
+			gpCtx:   &CommentContext{},
+			wantCtx: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := buildCommentBody(tt.body, tt.gpCtx)
+
+			if !containsString(result, tt.body) {
+				t.Errorf("expected comment body to contain '%s', got '%s'", tt.body, result)
+			}
+
+			if tt.wantCtx {
+				if !containsString(result, "GetPod context") {
+					t.Errorf("expected GetPod context block in result")
+				}
+				if !containsString(result, "Workspace:") {
+					t.Errorf("expected Workspace in context")
+				}
 			}
 		})
 	}

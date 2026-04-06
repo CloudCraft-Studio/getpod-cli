@@ -6,12 +6,20 @@ import (
 	"time"
 )
 
+// CommentContext holds GetPod work context to be included in issue comments
+type CommentContext struct {
+	Workspace   string   // ej: "core-services"
+	Environment string   // ej: "qa"
+	Branch      string   // ej: "feature/lulo-1234"
+	Repos       []string // ej: []string{"backend-core", "infra-terraform"}
+}
+
 // PlanningPlugin is implemented by plugins that manage issues (Jira, Linear, etc.).
 // The TUI does a type assertion to detect this capability.
 type PlanningPlugin interface {
 	ListIssues(ctx context.Context) ([]Issue, error)
 	GetIssue(ctx context.Context, key string) (*Issue, error)
-	AddComment(ctx context.Context, key, body string) error
+	AddComment(ctx context.Context, key, body string, gpCtx *CommentContext) error
 	ChangeStatus(ctx context.Context, key, status string) error
 	ListStatuses(ctx context.Context) ([]string, error)
 }

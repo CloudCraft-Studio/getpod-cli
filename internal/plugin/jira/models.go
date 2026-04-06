@@ -127,6 +127,19 @@ type JiraIssueDetailFields struct {
 	Labels   []string `json:"labels"`
 }
 
+// CommentContext holds GetPod work context to be included in comments
+type CommentContext struct {
+	Workspace   string   // ej: "core-services"
+	Environment string   // ej: "qa"
+	Branch      string   // ej: "feature/lulo-1234"
+	Repos       []string // ej: []string{"backend-core", "infra-terraform"}
+}
+
+// JiraCommentRequest estructura para POST /rest/api/3/issue/{key}/comment
+type JiraCommentRequest struct {
+	Body map[string]any `json:"body"` // Atlassian Document Format (ADF)
+}
+
 // parseJiraTime parsea el formato de tiempo de Jira a time.Time
 func parseJiraTime(s string) (time.Time, error) {
 	return time.Parse(time.RFC3339, s)

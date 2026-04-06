@@ -75,8 +75,9 @@ func (p *Plugin) Commands() []*cobra.Command {
 	}
 }
 
-// GetIssue obtiene el detalle completo de un issue por su key
-func (p *Plugin) GetIssue(ctx context.Context, key string) (*NormalizedIssueDetail, error) {
+// GetIssueDetail obtiene el detalle completo de un issue por su key
+// Retorna NormalizedIssueDetail con comentarios, subtareas, etc.
+func (p *Plugin) GetIssueDetail(ctx context.Context, key string) (*NormalizedIssueDetail, error) {
 	if p.client == nil {
 		return nil, fmt.Errorf("plugin not initialized: call Setup() first")
 	}
@@ -182,6 +183,81 @@ func (p *Plugin) TransitionIssue(ctx context.Context, key, transitionID string) 
 	}
 
 	return nil
+}
+
+// AddComment agrega un comentario a un issue con soporte opcional de contexto GetPod
+// Si gpCtx no es nil, incluye workspace, environment, branch y repos al final del comentario
+// Retorna error si el issue no existe (HTTP 404) u otros errores
+func (p *Plugin) AddComment(ctx context.Context, key, body string, gpCtx *CommentContext) error {
+	if p.client == nil {
+		return fmt.Errorf("plugin not initialized: call Setup() first")
+	}
+
+	// Construir body del comentario con contexto si se proporciona
+	fullBody := buildCommentBody(body, gpCtx)
+
+	// Convertir a ADF
+	adfBody := buildADFComment(fullBody)
+
+	// Construir request
+	path := fmt.Sprintf("/rest/api/3/issue/%s/comment", key)
+	reqBody := JiraCommentRequest{Body: adfBody}
+
+	// POST al endpoint
+	if err := p.client.post(ctx, path, reqBody); err != nil {
+		return fmt.Errorf("posting comment to issue %s: %w", key, err)
+	}
+
+	return nil
+}
+
+// buildADFComment crea un ADF mínimo a partir de texto plano
+// Genera un documento con un párrafo conteniendo el texto
+func buildADFComment(text string) map[string]any {
+	return map[string]any{
+		"version": 1,
+		"type":    "doc",
+		"content": []map[string]any{
+			{
+				"type": "paragraph",
+				"content": []map[string]any{
+					{
+						"type": "text",
+						"text": text,
+					},
+				},
+			},
+		},
+	}
+}
+
+// buildCommentBody construye el cuerpo del comentario incluyendo contexto GetPod si está disponible
+// Si gpCtx no es nil, agrega un bloque al final con workspace, environment, branch y repos
+func buildCommentBody(userBody string, gpCtx *CommentContext) string {
+	if gpCtx == nil {
+		return userBody
+	}
+
+	var parts []string
+	if gpCtx.Workspace != "" {
+		parts = append(parts, fmt.Sprintf("Workspace: %s", gpCtx.Workspace))
+	}
+	if gpCtx.Environment != "" {
+		parts = append(parts, fmt.Sprintf("Env: %s", gpCtx.Environment))
+	}
+	if gpCtx.Branch != "" {
+		parts = append(parts, fmt.Sprintf("Branch: %s", gpCtx.Branch))
+	}
+	if len(gpCtx.Repos) > 0 {
+		parts = append(parts, fmt.Sprintf("Repos: %s", strings.Join(gpCtx.Repos, ", ")))
+	}
+
+	if len(parts) == 0 {
+		return userBody
+	}
+
+	contextBlock := fmt.Sprintf("---\n*GetPod context*\n%s", strings.Join(parts, " | "))
+	return fmt.Sprintf("%s\n\n%s", userBody, contextBlock)
 }
 
 // extractPlainText extrae texto plano de un Atlassian Document Format (ADF)
@@ -430,7 +506,7 @@ func viewCmd(p *Plugin) *cobra.Command {
 		Long:  "Display detailed information about a specific Jira issue",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			detail, err := p.GetIssue(cmd.Context(), args[0])
+			detail, err := p.GetIssueDetail(cmd.Context(), args[0])
 			if err != nil {
 				return fmt.Errorf("fetching issue: %w", err)
 			}
@@ -470,4 +546,65 @@ func viewCmd(p *Plugin) *cobra.Command {
 			return nil
 		},
 	}
+}
+
+// ─── PlanningPlugin interface implementations ───────────────────────────────
+
+// ListIssues retorna issues del usuario (implementa PlanningPlugin)
+func (p *Plugin) ListIssues(ctx context.Context) ([]plugin.Issue, error) {
+	normalized, err := p.FetchIssues(ctx, IssueFilter{
+		AssignedToMe: true,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Convertir NormalizedIssue a Issue
+	issues := make([]plugin.Issue, 0, len(normalized))
+	for _, ni := range normalized {
+		issues = append(issues, plugin.Issue{
+			ID:       fmt.Sprintf("jira:%s", ni.Key),
+			Key:      ni.Key,
+			Title:    ni.Title,
+			Status:   ni.Status,
+			Priority: ni.Priority,
+		})
+	}
+
+	return issues, nil
+}
+
+// ListStatuses retorna los estados disponibles para un issue
+func (p *Plugin) ListStatuses(ctx context.Context) ([]string, error) {
+	// En Jira, los estados disponibles dependen del proyecto y del issue
+	// Para MVP, retornamos los estados normalizados comunes
+	return []string{"todo", "in-progress", "in-review", "done", "blocked"}, nil
+}
+
+// GetIssue implements PlanningPlugin.GetIssue
+// Obtiene detalles básicos de un issue para la interfaz PlanningPlugin
+func (p *Plugin) GetIssue(ctx context.Context, key string) (*plugin.Issue, error) {
+	if p.client == nil {
+		return nil, fmt.Errorf("plugin not initialized: call Setup() first")
+	}
+
+	fields := "summary,status,priority,description,labels,updated"
+	path := fmt.Sprintf("/rest/api/3/issue/%s?fields=%s", key, fields)
+
+	var issue JiraIssueDetail
+	if err := p.client.get(ctx, path, &issue); err != nil {
+		return nil, fmt.Errorf("fetching issue %s: %w", key, err)
+	}
+
+	description := extractPlainText(issue.Fields.Description)
+
+	return &plugin.Issue{
+		ID:          fmt.Sprintf("jira:%s", issue.Key),
+		Key:         issue.Key,
+		Title:       issue.Fields.Summary,
+		Status:      normalizeStatus(issue.Fields.Status.Name),
+		Priority:    normalizePriority(issue.Fields.Priority.Name),
+		Description: description,
+		Labels:      issue.Fields.Labels,
+	}, nil
 }

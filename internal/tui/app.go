@@ -678,22 +678,15 @@ func (a *App) addCommentCmd(body string) tea.Cmd {
 	issue := a.issueDetail.issue
 	reg := a.reg
 
-	// Auto-include context in the comment
-	var contextLine string
-	if issue.Workspace != "" || issue.Environment != "" {
-		parts := []string{}
-		if issue.Workspace != "" {
-			parts = append(parts, "Workspace: "+issue.Workspace)
+	// Build GetPod context to include in the comment
+	var gpCtx *plugin.CommentContext
+	if issue.Workspace != "" || issue.Environment != "" || len(issue.Repos) > 0 {
+		gpCtx = &plugin.CommentContext{
+			Workspace:   issue.Workspace,
+			Environment: issue.Environment,
+			Repos:       issue.Repos,
 		}
-		if issue.Environment != "" {
-			parts = append(parts, "Env: "+issue.Environment)
-		}
-		if len(issue.Repos) > 0 {
-			parts = append(parts, "Repos: "+strings.Join(issue.Repos, ", "))
-		}
-		contextLine = "\n\n---\n_" + strings.Join(parts, " · ") + "_"
 	}
-	fullBody := body + contextLine
 
 	return func() tea.Msg {
 		ctx := context.Background()
@@ -706,7 +699,7 @@ func (a *App) addCommentCmd(body string) tea.Cmd {
 			if !ok {
 				continue
 			}
-			err := pp.AddComment(ctx, issue.Key, fullBody)
+			err := pp.AddComment(ctx, issue.Key, body, gpCtx)
 			return CommentAddedMsg{Err: err}
 		}
 		return CommentAddedMsg{Err: fmt.Errorf("no planning plugin configured")}
