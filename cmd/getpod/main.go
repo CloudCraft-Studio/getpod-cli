@@ -9,6 +9,7 @@ import (
 
 	"github.com/CloudCraft-Studio/getpod-cli/internal/config"
 	"github.com/CloudCraft-Studio/getpod-cli/internal/plugin"
+	"github.com/CloudCraft-Studio/getpod-cli/internal/plugin/jira"
 	"github.com/CloudCraft-Studio/getpod-cli/internal/state"
 	"github.com/CloudCraft-Studio/getpod-cli/internal/store"
 	"github.com/CloudCraft-Studio/getpod-cli/internal/tui"
@@ -139,6 +140,7 @@ func init() {
 
 	// Inicializar el Registry (aquí se registrarán los plugins compilados en el futuro)
 	reg = plugin.NewRegistry()
+	reg.Register(&jira.Plugin{})
 }
 
 func main() {
