@@ -60,3 +60,15 @@ type Skill struct {
 	Confidence float64 `json:"confidence"` // 0.0 – 1.0
 	Source     string  `json:"source"`     // nombre del plugin que la derivó
 }
+
+// NormalizedIssue representa un issue normalizado desde cualquier sistema de tracking
+// (Jira, Linear, GitHub, etc.). Todos los plugins deben mapear a este modelo común.
+type NormalizedIssue struct {
+	Key       string    `json:"key"`      // "LULO-1234"
+	Title     string    `json:"title"`    // issue summary
+	Status    string    `json:"status"`   // normalizado: "todo", "in-progress", "in-review", "done", "blocked"
+	Priority  string    `json:"priority"` // "urgent", "high", "medium", "low"
+	UpdatedAt time.Time `json:"updated_at"`
+	Source    string    `json:"source"` // "jira", "linear", etc.
+	URL       string    `json:"url"`    // link al issue
+}

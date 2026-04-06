@@ -183,3 +183,198 @@ func TestClient_HandleErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestFetchIssues_Success(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !containsString(r.URL.Path, "/rest/api/3/search") {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		resp := JiraSearchResponse{
+			Issues: []JiraIssue{
+				{
+					Key:  "LULO-1234",
+					Self: r.Host + "/rest/api/3/issue/12345",
+					Fields: JiraIssueFields{
+						Summary: "Test issue",
+						Status: JiraStatus{
+							Name: "In Progress",
+						},
+						Priority: JiraPriority{
+							Name: "High",
+						},
+						Updated: "2026-04-05T10:00:00Z",
+					},
+				},
+			},
+			Total:      1,
+			StartAt:    0,
+			MaxResults: 50,
+		}
+
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			t.Errorf("failed to encode response: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	p := &Plugin{}
+	cfg := map[string]string{
+		"base_url":  server.URL,
+		"email":     "test@example.com",
+		"api_token": "test-token",
+	}
+
+	if err := p.Setup(cfg); err != nil {
+		t.Fatalf("Setup() failed: %v", err)
+	}
+
+	issues, err := p.FetchIssues(context.Background(), IssueFilter{
+		AssignedToMe: true,
+	})
+
+	if err != nil {
+		t.Fatalf("FetchIssues() failed: %v", err)
+	}
+
+	if len(issues) != 1 {
+		t.Fatalf("expected 1 issue, got %d", len(issues))
+	}
+
+	issue := issues[0]
+	if issue.Key != "LULO-1234" {
+		t.Errorf("Key mismatch: got %q, want %q", issue.Key, "LULO-1234")
+	}
+	if issue.Title != "Test issue" {
+		t.Errorf("Title mismatch: got %q, want %q", issue.Title, "Test issue")
+	}
+	if issue.Status != "in-progress" {
+		t.Errorf("Status mismatch: got %q, want %q", issue.Status, "in-progress")
+	}
+	if issue.Priority != "high" {
+		t.Errorf("Priority mismatch: got %q, want %q", issue.Priority, "high")
+	}
+	if issue.Source != "jira" {
+		t.Errorf("Source mismatch: got %q, want %q", issue.Source, "jira")
+	}
+}
+
+func TestFetchIssues_EmptyList(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		resp := JiraSearchResponse{
+			Issues:     []JiraIssue{},
+			Total:      0,
+			StartAt:    0,
+			MaxResults: 50,
+		}
+
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			t.Errorf("failed to encode response: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	p := &Plugin{}
+	cfg := map[string]string{
+		"base_url":  server.URL,
+		"email":     "test@example.com",
+		"api_token": "test-token",
+	}
+
+	if err := p.Setup(cfg); err != nil {
+		t.Fatalf("Setup() failed: %v", err)
+	}
+
+	issues, err := p.FetchIssues(context.Background(), IssueFilter{
+		AssignedToMe: true,
+	})
+
+	if err != nil {
+		t.Fatalf("FetchIssues() failed: %v", err)
+	}
+
+	if len(issues) != 0 {
+		t.Fatalf("expected 0 issues, got %d", len(issues))
+	}
+}
+
+func TestFetchIssues_NetworkError(t *testing.T) {
+	p := &Plugin{}
+	cfg := map[string]string{
+		"base_url":  "http://localhost:99999",
+		"email":     "test@example.com",
+		"api_token": "test-token",
+	}
+
+	if err := p.Setup(cfg); err != nil {
+		t.Fatalf("Setup() failed: %v", err)
+	}
+
+	_, err := p.FetchIssues(context.Background(), IssueFilter{
+		AssignedToMe: true,
+	})
+
+	if err == nil {
+		t.Fatal("expected error for network failure, got nil")
+	}
+}
+
+func TestNormalizeStatus(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"Open", "todo"},
+		{"To Do", "todo"},
+		{"Backlog", "todo"},
+		{"In Progress", "in-progress"},
+		{"In Development", "in-progress"},
+		{"Code Review", "in-review"},
+		{"In Review", "in-review"},
+		{"PR Open", "in-review"},
+		{"Done", "done"},
+		{"Closed", "done"},
+		{"Resolved", "done"},
+		{"Blocked", "blocked"},
+		{"Custom State", "todo"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := normalizeStatus(tt.input)
+			if got != tt.want {
+				t.Errorf("normalizeStatus(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNormalizePriority(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"Highest", "urgent"},
+		{"Blocker", "urgent"},
+		{"High", "high"},
+		{"Medium", "medium"},
+		{"Low", "low"},
+		{"Lowest", "low"},
+		{"Custom Priority", "medium"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := normalizePriority(tt.input)
+			if got != tt.want {
+				t.Errorf("normalizePriority(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func containsString(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && (s[:len(substr)] == substr || s[len(s)-len(substr):] == substr || containsString(s[1:], substr)))
+}
