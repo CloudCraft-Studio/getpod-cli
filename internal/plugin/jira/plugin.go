@@ -3,7 +3,6 @@ package jira
 import (
 	"context"
 	"fmt"
-	"net/url"
 	"strings"
 	"time"
 
@@ -188,7 +187,7 @@ func (p *Plugin) TransitionIssue(ctx context.Context, key, transitionID string) 
 // AddComment agrega un comentario a un issue con soporte opcional de contexto GetPod
 // Si gpCtx no es nil, incluye workspace, environment, branch y repos al final del comentario
 // Retorna error si el issue no existe (HTTP 404) u otros errores
-func (p *Plugin) AddComment(ctx context.Context, key, body string, gpCtx *CommentContext) error {
+func (p *Plugin) AddComment(ctx context.Context, key, body string, gpCtx *plugin.CommentContext) error {
 	if p.client == nil {
 		return fmt.Errorf("plugin not initialized: call Setup() first")
 	}
@@ -233,7 +232,7 @@ func buildADFComment(text string) map[string]any {
 
 // buildCommentBody construye el cuerpo del comentario incluyendo contexto GetPod si está disponible
 // Si gpCtx no es nil, agrega un bloque al final con workspace, environment, branch y repos
-func buildCommentBody(userBody string, gpCtx *CommentContext) string {
+func buildCommentBody(userBody string, gpCtx *plugin.CommentContext) string {
 	if gpCtx == nil {
 		return userBody
 	}
@@ -345,10 +344,14 @@ func (p *Plugin) FetchIssues(ctx context.Context, filter IssueFilter) ([]plugin.
 		maxResults = 50
 	}
 
-	// Construir URL con parámetros
-	path := fmt.Sprintf("/rest/api/3/search?jql=%s&fields=summary,status,priority,assignee,updated,issuetype,description&maxResults=%d&startAt=0",
-		url.QueryEscape(jql),
+	// Usar el nuevo endpoint GET /rest/api/3/search/jql
+	// Ref: https://developer.atlassian.com/changelog/#CHANGE-2046
+	// Los parámetros van en query string, no en el body
+	fieldsParam := "summary,status,priority,assignee,updated,issuetype,description"
+	path := fmt.Sprintf("/rest/api/3/search/jql?jql=%s&maxResults=%d&fields=%s",
+		escapeJQL(jql),
 		maxResults,
+		fieldsParam,
 	)
 
 	// Hacer request
@@ -369,6 +372,17 @@ func (p *Plugin) FetchIssues(ctx context.Context, filter IssueFilter) ([]plugin.
 	}
 
 	return normalized, nil
+}
+
+// escapeJQL escapa caracteres especiales en JQL para URL
+func escapeJQL(jql string) string {
+	// Usar strings.ReplaceAll para los caracteres más comunes
+	jql = strings.ReplaceAll(jql, " ", "%20")
+	jql = strings.ReplaceAll(jql, "=", "%3D")
+	jql = strings.ReplaceAll(jql, "!", "%21")
+	jql = strings.ReplaceAll(jql, "(", "%28")
+	jql = strings.ReplaceAll(jql, ")", "%29")
+	return jql
 }
 
 // buildJQL construye la query JQL según el filtro
@@ -607,4 +621,44 @@ func (p *Plugin) GetIssue(ctx context.Context, key string) (*plugin.Issue, error
 		Description: description,
 		Labels:      issue.Fields.Labels,
 	}, nil
+}
+
+// ChangeStatus cambia el estado de un issue al estado destino indicado.
+// Implementa PlanningPlugin.ChangeStatus.
+// Busca la transición que lleva al status deseado y la ejecuta.
+// targetStatus debe ser un nombre normalizado (ej: "in-progress", "done", "todo", "in-review", "blocked").
+func (p *Plugin) ChangeStatus(ctx context.Context, key, targetStatus string) error {
+	if p.client == nil {
+		return fmt.Errorf("plugin not initialized: call Setup() first")
+	}
+
+	// 1. Obtener transiciones disponibles
+	transitions, err := p.GetTransitions(ctx, key)
+	if err != nil {
+		return fmt.Errorf("getting transitions for %s: %w", key, err)
+	}
+
+	// 2. Buscar la transición que lleva al status destino
+	// targetStatus viene normalizado desde la TUI/PlanningPlugin
+	// t.To también está normalizado por GetTransitions
+	// Comparamos ambos en minúsculas para evitar problemas de case
+	targetLower := strings.ToLower(targetStatus)
+
+	for _, t := range transitions {
+		if t.To == targetLower {
+			// 3. Ejecutar la transición
+			return p.TransitionIssue(ctx, key, t.ID)
+		}
+	}
+
+	return fmt.Errorf("no transition found to status %q (available: %v)", targetStatus, availableStatusNames(transitions))
+}
+
+// availableStatusNames extrae los nombres de status destino de una lista de transiciones
+func availableStatusNames(transitions []Transition) []string {
+	names := make([]string, len(transitions))
+	for i, t := range transitions {
+		names[i] = t.To
+	}
+	return names
 }

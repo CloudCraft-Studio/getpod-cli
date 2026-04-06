@@ -56,7 +56,7 @@ func (c *Client) get(ctx context.Context, path string, out any) error {
 
 	if out != nil {
 		if err := json.Unmarshal(body, out); err != nil {
-			return fmt.Errorf("parsing response: %w", err)
+			return fmt.Errorf("parsing response: %w (body: %s)", err, string(body))
 		}
 	}
 
@@ -64,6 +64,10 @@ func (c *Client) get(ctx context.Context, path string, out any) error {
 }
 
 func (c *Client) post(ctx context.Context, path string, body any) error {
+	return c.postWithResponse(ctx, path, body, nil)
+}
+
+func (c *Client) postWithResponse(ctx context.Context, path string, body any, out any) error {
 	url := c.baseURL + path
 
 	var bodyReader io.Reader
@@ -104,6 +108,13 @@ func (c *Client) post(ctx context.Context, path string, body any) error {
 
 	if resp.StatusCode >= 400 {
 		return c.handleError(resp.StatusCode, respBody)
+	}
+
+	// Parse response si se proporcionó out
+	if out != nil {
+		if err := json.Unmarshal(respBody, out); err != nil {
+			return fmt.Errorf("parsing response: %w", err)
+		}
 	}
 
 	return nil

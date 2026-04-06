@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/CloudCraft-Studio/getpod-cli/internal/plugin"
 )
 
 func TestSetup_ValidConfig(t *testing.T) {
@@ -829,7 +831,7 @@ func TestAddComment_WithContext(t *testing.T) {
 		t.Fatalf("Setup() failed: %v", err)
 	}
 
-	gpCtx := &CommentContext{
+	gpCtx := &plugin.CommentContext{
 		Workspace:   "core-services",
 		Environment: "qa",
 		Branch:      "feature/lulo-5678",
@@ -919,7 +921,7 @@ func TestBuildCommentBody(t *testing.T) {
 	tests := []struct {
 		name    string
 		body    string
-		gpCtx   *CommentContext
+		gpCtx   *plugin.CommentContext
 		wantCtx bool
 	}{
 		{
@@ -931,7 +933,7 @@ func TestBuildCommentBody(t *testing.T) {
 		{
 			name: "with context",
 			body: "Working on this",
-			gpCtx: &CommentContext{
+			gpCtx: &plugin.CommentContext{
 				Workspace:   "prod",
 				Environment: "staging",
 				Repos:       []string{"api", "web"},
@@ -941,7 +943,7 @@ func TestBuildCommentBody(t *testing.T) {
 		{
 			name:    "empty context",
 			body:    "Another comment",
-			gpCtx:   &CommentContext{},
+			gpCtx:   &plugin.CommentContext{},
 			wantCtx: false,
 		},
 	}
@@ -968,4 +970,199 @@ func TestBuildCommentBody(t *testing.T) {
 
 func containsString(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && (s[:len(substr)] == substr || s[len(s)-len(substr):] == substr || containsString(s[1:], substr)))
+}
+
+// TestChangeStatus_Success tests successfully changing issue status
+func TestChangeStatus_Success(t *testing.T) {
+	callCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+
+		// First call: GetTransitions
+		if callCount == 1 && containsString(r.URL.Path, "/transitions") && r.Method == http.MethodGet {
+			w.Header().Set("Content-Type", "application/json")
+			resp := JiraTransitionsResponse{
+				Transitions: []JiraTransition{
+					{
+						ID:   "21",
+						Name: "To Do",
+						To: JiraStatus{
+							Name: "To Do",
+						},
+					},
+					{
+						ID:   "31",
+						Name: "In Progress",
+						To: JiraStatus{
+							Name: "In Progress",
+						},
+					},
+					{
+						ID:   "41",
+						Name: "Done",
+						To: JiraStatus{
+							Name: "Done",
+						},
+					},
+				},
+			}
+			if err := json.NewEncoder(w).Encode(resp); err != nil {
+				t.Errorf("failed to encode response: %v", err)
+			}
+			return
+		}
+
+		// Second call: TransitionIssue
+		if callCount == 2 && containsString(r.URL.Path, "/transitions") && r.Method == http.MethodPost {
+			// Validate body
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Errorf("failed to decode body: %v", err)
+			}
+
+			transition, ok := body["transition"].(map[string]any)
+			if !ok || transition["id"] != "31" {
+				t.Errorf("expected transition ID '31' in body, got: %+v", body)
+			}
+
+			// HTTP 204 No Content
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		t.Errorf("unexpected call %d: %s %s", callCount, r.Method, r.URL.Path)
+	}))
+	defer server.Close()
+
+	p := &Plugin{}
+	cfg := map[string]string{
+		"base_url":  server.URL,
+		"email":     "test@example.com",
+		"api_token": "test-token",
+	}
+
+	if err := p.Setup(cfg); err != nil {
+		t.Fatalf("Setup() failed: %v", err)
+	}
+
+	err := p.ChangeStatus(context.Background(), "LULO-1234", "in-progress")
+	if err != nil {
+		t.Fatalf("ChangeStatus() failed: %v", err)
+	}
+
+	if callCount != 2 {
+		t.Errorf("expected 2 API calls, got %d", callCount)
+	}
+}
+
+// TestChangeStatus_NoMatchingTransition tests error when no transition matches desired status
+func TestChangeStatus_NoMatchingTransition(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if containsString(r.URL.Path, "/transitions") && r.Method == http.MethodGet {
+			w.Header().Set("Content-Type", "application/json")
+			resp := JiraTransitionsResponse{
+				Transitions: []JiraTransition{
+					{
+						ID:   "21",
+						Name: "To Do",
+						To: JiraStatus{
+							Name: "To Do",
+						},
+					},
+					{
+						ID:   "31",
+						Name: "In Progress",
+						To: JiraStatus{
+							Name: "In Progress",
+						},
+					},
+				},
+			}
+			if err := json.NewEncoder(w).Encode(resp); err != nil {
+				t.Errorf("failed to encode response: %v", err)
+			}
+			return
+		}
+
+		t.Errorf("unexpected call: %s %s", r.Method, r.URL.Path)
+	}))
+	defer server.Close()
+
+	p := &Plugin{}
+	cfg := map[string]string{
+		"base_url":  server.URL,
+		"email":     "test@example.com",
+		"api_token": "test-token",
+	}
+
+	if err := p.Setup(cfg); err != nil {
+		t.Fatalf("Setup() failed: %v", err)
+	}
+
+	// Try to change to "done" which is not in available transitions
+	err := p.ChangeStatus(context.Background(), "LULO-1234", "done")
+	if err == nil {
+		t.Fatal("expected error for unavailable status, got nil")
+	}
+
+	if !containsString(err.Error(), "no transition found") {
+		t.Errorf("expected 'no transition found' error, got: %v", err)
+	}
+}
+
+// TestChangeStatus_GetTransitionsError tests error handling when GetTransitions fails
+func TestChangeStatus_GetTransitionsError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		resp := JiraError{
+			ErrorMessages: []string{"Issue not found"},
+		}
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			t.Errorf("failed to encode response: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	p := &Plugin{}
+	cfg := map[string]string{
+		"base_url":  server.URL,
+		"email":     "test@example.com",
+		"api_token": "test-token",
+	}
+
+	if err := p.Setup(cfg); err != nil {
+		t.Fatalf("Setup() failed: %v", err)
+	}
+
+	err := p.ChangeStatus(context.Background(), "NONEXISTENT-999", "in-progress")
+	if err == nil {
+		t.Fatal("expected error when GetTransitions fails, got nil")
+	}
+
+	if !containsString(err.Error(), "getting transitions") {
+		t.Errorf("expected 'getting transitions' error, got: %v", err)
+	}
+}
+
+// TestAvailableStatusNames tests the helper function
+func TestAvailableStatusNames(t *testing.T) {
+	transitions := []Transition{
+		{ID: "21", Name: "To Do", To: "todo"},
+		{ID: "31", Name: "In Progress", To: "in-progress"},
+		{ID: "41", Name: "Done", To: "done"},
+	}
+
+	names := availableStatusNames(transitions)
+
+	if len(names) != 3 {
+		t.Fatalf("expected 3 names, got %d", len(names))
+	}
+
+	expected := []string{"todo", "in-progress", "done"}
+	for i, name := range names {
+		if name != expected[i] {
+			t.Errorf("names[%d] = %q, want %q", i, name, expected[i])
+		}
+	}
 }

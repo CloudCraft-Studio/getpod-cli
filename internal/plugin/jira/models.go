@@ -1,6 +1,9 @@
 package jira
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 type JiraUser struct {
 	AccountID   string `json:"accountId"`
@@ -13,12 +16,14 @@ type JiraError struct {
 	Errors        map[string]string `json:"errors"`
 }
 
-// JiraSearchResponse representa la respuesta de /rest/api/3/search
+// JiraSearchResponse representa la respuesta de /rest/api/3/search y /rest/api/3/search/jql
 type JiraSearchResponse struct {
-	Issues     []JiraIssue `json:"issues"`
-	Total      int         `json:"total"`
-	StartAt    int         `json:"startAt"`
-	MaxResults int         `json:"maxResults"`
+	Issues        []JiraIssue `json:"issues"`
+	Total         int         `json:"total"`         // solo en /search (deprecated)
+	StartAt       int         `json:"startAt"`       // solo en /search (deprecated)
+	MaxResults    int         `json:"maxResults"`    // solo en /search (deprecated)
+	NextPageToken string      `json:"nextPageToken"` // solo en /search/jql (nuevo)
+	IsLast        bool        `json:"isLast"`        // solo en /search/jql (nuevo)
 }
 
 // JiraIssue representa un issue individual en la respuesta de Jira
@@ -35,7 +40,7 @@ type JiraIssueFields struct {
 	Priority    JiraPriority  `json:"priority"`
 	Updated     string        `json:"updated"`
 	IssueType   JiraIssueType `json:"issuetype"`
-	Description string        `json:"description"`
+	Description any           `json:"description"` // ADF format
 }
 
 // JiraStatus representa el estado del issue
@@ -127,20 +132,29 @@ type JiraIssueDetailFields struct {
 	Labels   []string `json:"labels"`
 }
 
-// CommentContext holds GetPod work context to be included in comments
-type CommentContext struct {
-	Workspace   string   // ej: "core-services"
-	Environment string   // ej: "qa"
-	Branch      string   // ej: "feature/lulo-1234"
-	Repos       []string // ej: []string{"backend-core", "infra-terraform"}
-}
-
 // JiraCommentRequest estructura para POST /rest/api/3/issue/{key}/comment
 type JiraCommentRequest struct {
 	Body map[string]any `json:"body"` // Atlassian Document Format (ADF)
 }
 
 // parseJiraTime parsea el formato de tiempo de Jira a time.Time
+// Soporta múltiples formatos: RFC3339 y formato con zona horaria sin dos puntos
 func parseJiraTime(s string) (time.Time, error) {
-	return time.Parse(time.RFC3339, s)
+	// Intentar RFC3339 primero (formato estándar)
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return t, nil
+	}
+
+	// Intentar formato con milisegundos y zona horaria sin dos puntos
+	// Ejemplo: "2026-04-04T08:41:47.075-0500"
+	if t, err := time.Parse("2006-01-02T15:04:05.999-0700", s); err == nil {
+		return t, nil
+	}
+
+	// Intentar sin milisegundos
+	if t, err := time.Parse("2006-01-02T15:04:05-0700", s); err == nil {
+		return t, nil
+	}
+
+	return time.Time{}, fmt.Errorf("formato de tiempo no reconocido: %s", s)
 }
